@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
@@ -68,7 +69,8 @@ class KeywordJpaRepositoryTest {
             createAndSaveKeywordEntity(TestDataFactory.DOENJANG_JJIGAE, 2, TrendStatus.MAINTAIN);
 
             // When
-            List<KeywordEntity> results = keywordJpaRepository.findAllByOrderByRankingAsc();
+            PageRequest pageRequest = PageRequest.of(0, 3);
+            List<KeywordEntity> results = keywordJpaRepository.findAllByOrderByRankingAsc(pageRequest);
 
             // Then
             assertThat(results).hasSize(3);

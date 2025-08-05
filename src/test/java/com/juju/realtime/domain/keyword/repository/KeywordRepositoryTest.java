@@ -63,19 +63,27 @@ class KeywordRepositoryTest {
     @DisplayName("검색어 정렬 조회")
     class KeywordSortingTests {
 
+
+
         @Test
-        @DisplayName("✅ 랭킹순으로 검색어 정렬 조회 성공")
-        void 랭킹순으로_검색어_정렬_조회_성공() {
+        @DisplayName("✅ 랭킹순으로 검색어 TOP N 조회 성공")
+        void 랭킹순으로_검색어_TOP_N_조회_성공() {
             // Given
             Keyword keyword3 = TestDataFactory.createKeyword(
                     TestDataFactory.SUNDUBU_JJIGAE, 3, TrendStatus.DOWN);
+            Keyword keyword4 = TestDataFactory.createKeyword(
+                    "된장찌개", 4, TrendStatus.UP);
+            Keyword keyword5 = TestDataFactory.createKeyword(
+                    "순두부찌개", 5, TrendStatus.MAINTAIN);
 
             keywordRepository.save(testKeyword2); // ranking 2
             keywordRepository.save(testKeyword1); // ranking 1  
             keywordRepository.save(keyword3);     // ranking 3
+            keywordRepository.save(keyword4);     // ranking 4
+            keywordRepository.save(keyword5);     // ranking 5
 
             // When
-            List<Keyword> keywords = keywordRepository.findAllByOrderByRankingAsc();
+            List<Keyword> keywords = keywordRepository.findTopKeywordsByRankingAsc(3);
 
             // Then
             assertThat(keywords).hasSize(3);
