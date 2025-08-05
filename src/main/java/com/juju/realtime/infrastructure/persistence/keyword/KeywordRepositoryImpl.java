@@ -5,6 +5,7 @@ import com.juju.realtime.domain.keyword.repository.KeywordRepository;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -29,8 +30,9 @@ public class KeywordRepositoryImpl implements KeywordRepository {
     }
 
     @Override
-    public List<Keyword> findAllByOrderByRankingAsc() {
-        List<KeywordEntity> entities = jpaRepository.findAllByOrderByRankingAsc();
+    public List<Keyword> findTopKeywordsByRankingAsc(int limit) {
+        PageRequest pageRequest = PageRequest.of(0, limit);
+        List<KeywordEntity> entities = jpaRepository.findAllByOrderByRankingAsc(pageRequest);
         return mapper.toDomainList(entities);
     }
 

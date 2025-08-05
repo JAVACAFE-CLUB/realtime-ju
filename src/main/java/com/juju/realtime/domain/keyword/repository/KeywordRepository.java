@@ -10,7 +10,7 @@ public interface KeywordRepository {
 
     Optional<Keyword> findById(Long id);
 
-    List<Keyword> findAllByOrderByRankingAsc();
+    List<Keyword> findTopKeywordsByRankingAsc(int limit);
 
     void deleteById(Long id);
 }

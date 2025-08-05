@@ -20,10 +20,9 @@ public class KeywordApplicationService {
 
     @Transactional(readOnly = true)
     public List<KeywordResponse> getTopKeywords(int limit) {
-        List<Keyword> keywords = keywordRepository.findAllByOrderByRankingAsc();
+        List<Keyword> keywords = keywordRepository.findTopKeywordsByRankingAsc(limit);
 
         return keywords.stream()
-                .limit(limit)
                 .map(KeywordResponse::from)
                 .collect(Collectors.toList());
     }

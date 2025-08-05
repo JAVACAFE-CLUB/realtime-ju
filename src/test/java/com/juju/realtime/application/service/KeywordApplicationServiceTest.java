@@ -55,7 +55,7 @@ class KeywordApplicationServiceTest {
         void 실시간_검색어_TOP10_조회_성공() {
             // given
             List<Keyword> top3Keywords = TestDataFactory.createTop3Keywords();
-            given(keywordRepository.findAllByOrderByRankingAsc())
+            given(keywordRepository.findTopKeywordsByRankingAsc(10))
                     .willReturn(top3Keywords);
 
             // when
@@ -65,16 +65,16 @@ class KeywordApplicationServiceTest {
             TestAssertions.assertKeywordResponseList(responses, 3);
             TestAssertions.assertFirstKeyword(responses,
                     TestDataFactory.KIMCHI_JJIGAE, 1, TrendStatus.UP);
-            verify(keywordRepository).findAllByOrderByRankingAsc();
+            verify(keywordRepository).findTopKeywordsByRankingAsc(10);
         }
 
         @Test
         @DisplayName("✅ 실시간 검색어 TOP 5 조회 - limit 적용")
         void 실시간_검색어_TOP5_조회_limit적용_성공() {
             // given
-            List<Keyword> top5Keywords = TestDataFactory.createTop5Keywords();
-            given(keywordRepository.findAllByOrderByRankingAsc())
-                    .willReturn(top5Keywords);
+            List<Keyword> top3Keywords = TestDataFactory.createTop3Keywords();
+            given(keywordRepository.findTopKeywordsByRankingAsc(3))
+                    .willReturn(top3Keywords);
 
             // when
             List<KeywordResponse> responses = keywordApplicationService.getTopKeywords(3);
@@ -85,7 +85,7 @@ class KeywordApplicationServiceTest {
                     TestDataFactory.KIMCHI_JJIGAE,
                     TestDataFactory.DOENJANG_JJIGAE,
                     TestDataFactory.SUNDUBU_JJIGAE);
-            verify(keywordRepository).findAllByOrderByRankingAsc();
+            verify(keywordRepository).findTopKeywordsByRankingAsc(3);
         }
     }
 
