@@ -4,7 +4,6 @@ import com.juju.realtime.domain.keyword.entity.Keyword;
 import com.juju.realtime.domain.keyword.entity.TrendStatus;
 import com.juju.realtime.presentation.rest.keyword.dto.KeywordCreateRequest;
 import com.juju.realtime.presentation.rest.keyword.dto.KeywordResponse;
-
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -23,7 +22,8 @@ public class TestDataFactory {
         return createKeyword(1L, keyword, ranking, trendStatus, 1000L);
     }
 
-    public static Keyword createKeyword(Long id, String keyword, Integer ranking, TrendStatus trendStatus, Long searchCount) {
+    public static Keyword createKeyword(Long id, String keyword, Integer ranking, TrendStatus trendStatus,
+                                        Long searchCount) {
         return Keyword.builder()
                 .id(id)
                 .keyword(keyword)
@@ -39,7 +39,8 @@ public class TestDataFactory {
     }
 
     // KeywordResponse 생성
-    public static KeywordResponse createKeywordResponse(Long id, String keyword, Integer ranking, TrendStatus trendStatus) {
+    public static KeywordResponse createKeywordResponse(Long id, String keyword, Integer ranking,
+                                                        TrendStatus trendStatus) {
         return KeywordResponse.builder()
                 .id(id)
                 .keyword(keyword)
