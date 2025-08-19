@@ -121,8 +121,7 @@ class KeywordApplicationServiceTest {
         void 검색어_삭제_성공() {
             // given
             Long keywordId = 1L;
-            given(keywordRepository.findById(keywordId))
-                    .willReturn(Optional.of(sampleKeyword));
+            given(keywordRepository.existsById(keywordId)).willReturn(true);
 
             // when
             keywordApplicationService.deleteKeyword(keywordId);
@@ -136,8 +135,7 @@ class KeywordApplicationServiceTest {
         void 검색어_삭제_존재하지않는검색어_예외발생() {
             // given
             Long keywordId = 999L;
-            given(keywordRepository.findById(keywordId))
-                    .willReturn(Optional.empty());
+            given(keywordRepository.existsById(keywordId)).willReturn(false);
 
             // when & then
             assertThatThrownBy(() -> keywordApplicationService.deleteKeyword(keywordId))

@@ -1,8 +1,12 @@
 package com.juju.realtime.domain.keyword.repository;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.juju.realtime.TestDataFactory;
 import com.juju.realtime.domain.keyword.entity.Keyword;
 import com.juju.realtime.domain.keyword.entity.TrendStatus;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -11,11 +15,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -64,7 +63,6 @@ class KeywordRepositoryTest {
     class KeywordSortingTests {
 
 
-
         @Test
         @DisplayName("✅ 랭킹순으로 검색어 TOP N 조회 성공")
         void 랭킹순으로_검색어_TOP_N_조회_성공() {
@@ -102,13 +100,13 @@ class KeywordRepositoryTest {
         void 검색어_삭제_성공() {
             // Given
             Keyword savedKeyword = keywordRepository.save(testKeyword1);
-            assertThat(keywordRepository.findById(savedKeyword.getId())).isPresent();
+            assertThat(keywordRepository.existsById(savedKeyword.getId())).isTrue();
 
             // When
             keywordRepository.deleteById(savedKeyword.getId());
 
             // Then
-            assertThat(keywordRepository.findById(savedKeyword.getId())).isEmpty();
+            assertThat(keywordRepository.existsById(savedKeyword.getId())).isFalse();
         }
     }
 }
