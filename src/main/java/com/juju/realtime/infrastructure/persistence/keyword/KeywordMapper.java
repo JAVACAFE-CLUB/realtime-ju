@@ -2,13 +2,14 @@ package com.juju.realtime.infrastructure.persistence.keyword;
 
 import com.juju.realtime.domain.keyword.entity.Keyword;
 import java.util.List;
-import java.util.stream.Collectors;
-import org.springframework.stereotype.Component;
 
-@Component
 public class KeywordMapper {
 
-    public KeywordEntity toEntity(Keyword domain) {
+    private KeywordMapper() {
+        // 유틸리티 클래스이므로 인스턴스화를 방지
+    }
+
+    public static KeywordEntity toEntity(Keyword domain) {
         return KeywordEntity.builder()
                 .id(domain.getId())
                 .keyword(domain.getKeyword())
@@ -18,8 +19,7 @@ public class KeywordMapper {
                 .build();
     }
 
-    public Keyword toDomain(KeywordEntity entity) {
-
+    public static Keyword toDomain(KeywordEntity entity) {
         return Keyword.builder()
                 .id(entity.getId())
                 .keyword(entity.getKeyword())
@@ -31,9 +31,9 @@ public class KeywordMapper {
                 .build();
     }
 
-    public List<Keyword> toDomainList(List<KeywordEntity> entities) {
+    public static List<Keyword> toDomainList(List<KeywordEntity> entities) {
         return entities.stream()
-                .map(this::toDomain)
-                .collect(Collectors.toList());
+                .map(KeywordMapper::toDomain)
+                .toList();
     }
 }
