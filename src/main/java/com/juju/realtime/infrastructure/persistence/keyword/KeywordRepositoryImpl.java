@@ -13,27 +13,26 @@ import org.springframework.stereotype.Repository;
 public class KeywordRepositoryImpl implements KeywordRepository {
 
     private final KeywordJpaRepository jpaRepository;
-    private final KeywordMapper mapper;
 
     @Override
     public Keyword save(Keyword keyword) {
-        KeywordEntity entity = mapper.toEntity(keyword);
+        KeywordEntity entity = KeywordMapper.toEntity(keyword);
         KeywordEntity savedEntity = jpaRepository.save(entity);
 
-        return mapper.toDomain(savedEntity);
+        return KeywordMapper.toDomain(savedEntity);
     }
 
     @Override
     public Optional<Keyword> findById(Long id) {
         return jpaRepository.findById(id)
-                .map(mapper::toDomain);
+                .map(KeywordMapper::toDomain);
     }
 
     @Override
     public List<Keyword> findTopKeywordsByRankingAsc(int limit) {
         PageRequest pageRequest = PageRequest.of(0, limit);
         List<KeywordEntity> entities = jpaRepository.findAllByOrderByRankingAsc(pageRequest);
-        return mapper.toDomainList(entities);
+        return KeywordMapper.toDomainList(entities);
     }
 
     @Override
