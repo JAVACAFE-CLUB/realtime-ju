@@ -41,9 +41,9 @@ public class KeywordApplicationService {
 
     @Transactional
     public void deleteKeyword(Long keywordId) {
-        keywordRepository.findById(keywordId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.KEYWORD_NOT_FOUND));
-
+        if (!keywordRepository.existsById(keywordId)) {
+            throw new BusinessException(ErrorCode.KEYWORD_NOT_FOUND);
+        }
         keywordRepository.deleteById(keywordId);
     }
 

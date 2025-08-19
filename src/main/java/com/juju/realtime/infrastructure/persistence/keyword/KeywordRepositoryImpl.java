@@ -29,6 +29,11 @@ public class KeywordRepositoryImpl implements KeywordRepository {
     }
 
     @Override
+    public boolean existsById(Long id) {
+        return jpaRepository.existsById(id);
+    }
+
+    @Override
     public List<Keyword> findTopKeywordsByRankingAsc(int limit) {
         PageRequest pageRequest = PageRequest.of(0, limit);
         List<KeywordEntity> entities = jpaRepository.findAllByOrderByRankingAsc(pageRequest);

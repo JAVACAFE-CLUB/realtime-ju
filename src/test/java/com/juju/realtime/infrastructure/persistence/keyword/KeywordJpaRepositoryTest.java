@@ -1,7 +1,11 @@
 package com.juju.realtime.infrastructure.persistence.keyword;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.juju.realtime.TestDataFactory;
 import com.juju.realtime.domain.keyword.entity.TrendStatus;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -11,11 +15,6 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
-
-import java.util.List;
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @DataJpaTest
 @ActiveProfiles("test")
@@ -90,13 +89,13 @@ class KeywordJpaRepositoryTest {
             // Given
             KeywordEntity keywordEntity = createAndSaveKeywordEntity(
                     TestDataFactory.BUDAE_JJIGAE, 1, TrendStatus.UP);
-            assertThat(keywordJpaRepository.findById(keywordEntity.getId())).isPresent();
+            assertThat(keywordJpaRepository.existsById(keywordEntity.getId())).isTrue();
 
             // When
             keywordJpaRepository.deleteById(keywordEntity.getId());
 
             // Then
-            assertThat(keywordJpaRepository.findById(keywordEntity.getId())).isEmpty();
+            assertThat(keywordJpaRepository.existsById(keywordEntity.getId())).isFalse();
         }
     }
 
@@ -104,8 +103,8 @@ class KeywordJpaRepositoryTest {
         return createAndSaveKeywordEntityWithSearchCount(keyword, ranking, trendStatus, 0L);
     }
 
-    private KeywordEntity createAndSaveKeywordEntityWithSearchCount(String keyword, Integer ranking, 
-                                                                   TrendStatus trendStatus, Long searchCount) {
+    private KeywordEntity createAndSaveKeywordEntityWithSearchCount(String keyword, Integer ranking,
+                                                                    TrendStatus trendStatus, Long searchCount) {
         KeywordEntity keywordEntity = KeywordEntity.builder()
                 .keyword(keyword)
                 .ranking(ranking)
