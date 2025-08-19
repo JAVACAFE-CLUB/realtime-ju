@@ -12,14 +12,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest
+@DataJpaTest
+@Import(com.juju.realtime.infrastructure.persistence.keyword.KeywordRepositoryImpl.class)
 @ActiveProfiles("test")
-@Transactional
-@DisplayName("🔥 KeywordRepository 테스트")
+@DisplayName("🔥 KeywordRepositoryImpl 테스트")
 class KeywordRepositoryTest {
 
     @Autowired
