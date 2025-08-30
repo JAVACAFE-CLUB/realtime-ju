@@ -1,0 +1,84 @@
+plugins {
+    id 'java-library'                    // 라이브러리 프로젝트용 플러그인
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'maven-publish'                   // 다른 프로젝트에서 사용하기 위한 발행
+}
+
+description = 'Common library for realtime search platform'
+
+dependencies {
+    // 🌱 Spring Boot Core (공통 기능)
+    api 'org.springframework.boot:spring-boot-starter'
+    api 'org.springframework.boot:spring-boot-starter-validation'
+    api 'org.springframework.boot:spring-boot-starter-web'
+
+    // 📨 Kafka (메시지큐)
+    api 'org.springframework.kafka:spring-kafka'
+
+    // 🔍 Elasticsearch (검색엔진)
+    api 'org.springframework.boot:spring-boot-starter-data-elasticsearch'
+
+    // 🚀 Redis (캐시)
+    api 'org.springframework.boot:spring-boot-starter-data-redis'
+
+    // 🗄️ JPA (데이터베이스 - 공통 Base Entity용)
+    api 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+    // 🛠️ 유틸리티
+    api 'com.fasterxml.jackson.core:jackson-databind'      // JSON 처리
+    api 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'  // Java 8 Time API
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // 📊 모니터링 (Actuator)
+    api 'org.springframework.boot:spring-boot-starter-actuator'
+    api 'io.micrometer:micrometer-registry-prometheus'     // Prometheus 메트릭
+
+    // 🧪 테스트
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.kafka:spring-kafka-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// ========================================
+// 📦 JAR 빌드 설정
+// ========================================
+jar {
+    enabled = true              // JAR 파일 생성 활성화
+    archiveClassifier = ''      // 분류자 제거 (plain JAR 대신)
+}
+
+bootJar {
+    enabled = false             // Spring Boot 실행 가능 JAR 비활성화 (라이브러리이므로)
+}
+
+// ========================================
+// 📤 Maven 발행 설정 (로컬 사용)
+// ========================================
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+
+            groupId = project.group
+            artifactId = 'common-lib'
+            version = project.version
+        }
+    }
+}
+
+// ========================================
+// 🧪 테스트 설정
+// ========================================
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// ========================================
+// 📋 소스/자바독 JAR 생성
+// ========================================
+java {
+    withSourcesJar()            // 소스코드 JAR 생성
+    withJavadocJar()            // 문서 JAR 생성
+}

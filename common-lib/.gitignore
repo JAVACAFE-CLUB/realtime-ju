@@ -1,7 +1,7 @@
 HELP.md
 .gradle
 build/
-!serving-system/gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
 
@@ -35,23 +35,3 @@ out/
 
 ### VS Code ###
 .vscode/
-
-### Docker ###
-# Docker 볼륨 데이터는 무시하지 않음 (docker-compose.yml에서 관리)
-
-### 로그 파일 ###
-*.log
-logs/
-
-### 환경 설정 ###
-.env
-.env.local
-.env.production
-
-### macOS ###
-.DS_Store
-
-### 임시 파일 ###
-*.tmp
-*.temp
-.history

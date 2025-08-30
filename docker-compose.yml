@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mysql:
     image: mysql:8.0
@@ -15,8 +13,8 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - mysql_data:/var/lib/mysql
-      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+      - mysql_data:/var/lib/mysql    #  데이터 영구 저장
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d    # 초기화 스크립트
     command: >
       --default-authentication-plugin=mysql_native_password
       --character-set-server=utf8mb4
@@ -27,13 +25,83 @@ services:
     networks:
       - realtime-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${DB_USER}", "-p${DB_PASSWORD}"]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${DB_USER}", "-p${DB_PASSWORD}" ]
       timeout: 20s
       retries: 10
       interval: 30s
 
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: realtime-kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKER_ID: 1                                      #️ Kafka 브로커 ID
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181                 # Zookeeper 연결 정보
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092  # 외부 접속 주소
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1               # 복제본 개수 (1개 = 복제 안함)
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1                  # 트랜잭션 설정
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1       # 트랜잭션 복제
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper   # Zookeeper가 먼저 실행되어야 함
+    networks:
+      - realtime-network
+    profiles:
+      - kafka       # 선택적 실행: --profile kafka 옵션 필요
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: realtime-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - realtime-network
+    profiles:
+      - kafka
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: realtime-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node          # 단일 노드 모드 (클러스터 안함)
+      - xpack.security.enabled=false        # 보안 기능 끄기 (개발용)
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"    # 메모리 512MB 할당
+    ports:
+      - "9200:9200"   # HTTP API 포트
+      - "9300:9300"   # 클러스터 통신 포트
+    volumes:
+      - es_data:/usr/share/elasticsearch/data   # 검색 데이터 저장
+    networks:
+      - realtime-network
+    profiles:
+      - elasticsearch
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: realtime-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis1234}
+    ports:
+      - "6379:6379"       # Redis 기본 포트
+    volumes:
+      - redis_data:/data  # 캐시 데이터 저장
+    networks:
+      - realtime-network
+    profiles:
+      - redis
+
 volumes:
   mysql_data:
+    driver: local
+  es_data:
+    driver: local
+  redis_data:
     driver: local
 
 networks:
