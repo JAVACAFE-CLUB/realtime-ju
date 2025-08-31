@@ -1,9 +1,9 @@
 package com.realtime.serving.application.service;
 
+import com.realtime.commonlib.exception.BusinessException;
+import com.realtime.commonlib.exception.ErrorCode;
 import com.realtime.serving.domain.keyword.entity.Keyword;
 import com.realtime.serving.domain.keyword.repository.KeywordRepository;
-import com.realtime.serving.global.exception.BusinessException;
-import com.realtime.serving.global.exception.ErrorCode;
 import com.realtime.serving.presentation.rest.keyword.dto.KeywordCreateRequest;
 import com.realtime.serving.presentation.rest.keyword.dto.KeywordResponse;
 import java.util.List;

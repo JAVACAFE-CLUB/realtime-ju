@@ -1,7 +1,7 @@
 package com.realtime.serving.presentation.rest.keyword;
 
+import com.realtime.commonlib.common.dto.api.ApiResponse;
 import com.realtime.serving.application.service.KeywordApplicationService;
-import com.realtime.serving.global.common.ApiResponse;
 import com.realtime.serving.presentation.rest.keyword.dto.KeywordCreateRequest;
 import com.realtime.serving.presentation.rest.keyword.dto.KeywordResponse;
 import java.util.List;
