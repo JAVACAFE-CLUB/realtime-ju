@@ -5,8 +5,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.verify;
 
-import com.realtime.commonlib.exception.BusinessException;
-import com.realtime.commonlib.exception.ErrorCode;
+import com.realtime.common.exception.BusinessException;
+import com.realtime.common.exception.ErrorCode;
 import com.realtime.serving.TestAssertions;
 import com.realtime.serving.TestDataFactory;
 import com.realtime.serving.domain.keyword.entity.Keyword;

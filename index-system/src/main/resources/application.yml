@@ -4,7 +4,7 @@ spring:
 ---
 
 server:
-  port: 9086
+  port: 9084
 
 # 개발 환경 설정
 spring:
