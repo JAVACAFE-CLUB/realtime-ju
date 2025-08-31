@@ -1,6 +1,6 @@
-package com.realtime.serving.global.exception;
+package com.realtime.commonlib.exception;
 
-import com.realtime.serving.global.common.ApiResponse;
+import com.realtime.commonlib.common.dto.api.ApiResponse;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;

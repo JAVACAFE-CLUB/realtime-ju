@@ -1,4 +1,4 @@
-package com.realtime.serving.global.exception;
+package com.realtime.commonlib.exception;
 
 import lombok.Getter;
 
