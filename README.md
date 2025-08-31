@@ -13,11 +13,13 @@
 
 ## ☁️ 프로젝트 구조
 
-- `common-lib`: 공통 라이브러리 (DTO, 설정, 유틸리티)
-- `collector-system`: 데이터 수집 시스템 (뉴스, SNS 크롤링)
-- `refine-system`: 데이터 정제 시스템
-- `index-system`: 검색 색인 시스템 (Elasticsearch 색인)
-- `serving-system`:  API 서빙 시스템 (REST API)
+| 시스템              | 설명                           | 포트   |
+|------------------|------------------------------|------|
+| common-lib       | 공통 라이브러리 (DTO, 설정, 유틸리티)     | -    |
+| collector-system | 데이터 수집 시스템 (뉴스, SNS 크롤링)     | 9080 |
+| refine-system    | 데이터 정제 시스템                   | 9082 |
+| index-system     | 검색 색인 시스템 (Elasticsearch 색인) | 9084 |
+| serving-system   | API 서빙 시스템 (REST API)        | 9086 |
 
 ## ☁️ 기술 스택
 

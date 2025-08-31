@@ -1,7 +1,7 @@
-package com.realtime.commonlib.common.dto.api;
+package com.realtime.common.dto.api;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.realtime.commonlib.exception.ErrorCode;
+import com.realtime.common.exception.ErrorCode;
 import java.time.LocalDateTime;
 import lombok.Builder;
 import lombok.Value;

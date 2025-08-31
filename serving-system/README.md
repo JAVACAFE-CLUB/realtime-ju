@@ -1,7 +1,5 @@
 # Serving System | 실시간 검색어 API 서버
 
-> **애플리케이션 접속**: http://localhost:8080
-
 - 실시간 트렌딩 키워드를 제공하는 REST API 서버
 - Elasticsearch 기반 검색과 Redis 캐싱을 통해 빠른 응답을 제공
 
