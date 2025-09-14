@@ -19,7 +19,15 @@ public enum ErrorCode {
     INVALID_REQUEST("VA002", "잘못된 요청입니다", HttpStatus.BAD_REQUEST),
 
     // 시스템 에러
-    INTERNAL_SERVER_ERROR("SY001", "서버 내부 오류가 발생했습니다", HttpStatus.INTERNAL_SERVER_ERROR);
+    INTERNAL_SERVER_ERROR("SY001", "서버 내부 오류가 발생했습니다", HttpStatus.INTERNAL_SERVER_ERROR),
+
+    // 외부 연동/메시징 에러
+    EXTERNAL_API_ERROR("EX001", "외부 API 호출 실패", HttpStatus.BAD_GATEWAY),
+    KAFKA_ERROR("KF001", "카프카 처리 실패", HttpStatus.SERVICE_UNAVAILABLE),
+
+    // 저장소/데이터베이스 에러 (공통)
+    STORAGE_ERROR("ST001", "스토리지 작업에 실패했습니다", HttpStatus.INTERNAL_SERVER_ERROR),
+    DATABASE_ERROR("DB001", "데이터베이스 작업에 실패했습니다", HttpStatus.INTERNAL_SERVER_ERROR);
 
     private final String code;
     private final String message;
