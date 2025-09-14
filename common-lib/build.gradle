@@ -11,21 +11,40 @@ dependencies {
     // 🌱 Spring Boot Core (공통 기능)
     api 'org.springframework.boot:spring-boot-starter'
     api 'org.springframework.boot:spring-boot-starter-validation'
-    api 'org.springframework.boot:spring-boot-starter-web'
 
     // 📨 Kafka (메시지큐)
     api 'org.springframework.kafka:spring-kafka'
 
     // 🔍 Elasticsearch (검색엔진)
-    api 'org.springframework.boot:spring-boot-starter-data-elasticsearch'
+    // api 'org.springframework.boot:spring-boot-starter-data-elasticsearch'
 
     // 🚀 Redis (캐시)
-    api 'org.springframework.boot:spring-boot-starter-data-redis'
+    // api 'org.springframework.boot:spring-boot-starter-data-redis'
 
-    // 🗄️ JPA (데이터베이스 - 공통 Base Entity용)
-    api 'org.springframework.boot:spring-boot-starter-data-jpa'
+    // 📊 MongoDB
+    // api 'org.springframework.boot:spring-boot-starter-data-mongodb'
+
+    // 📁 MinIO S3 Client (대용량 파일 저장)
+    api 'io.minio:minio:8.5.7'
+
+    // 🗜️ 압축 라이브러리
+    api 'org.apache.commons:commons-compress:1.24.0'
+    api 'com.github.luben:zstd-jni:1.5.5-10'           // Kafka 압축용
+    api 'org.xerial.snappy:snappy-java:1.1.10.5'       // 고속 압축
+
+    // 🌐 HTTP 클라이언트 (WebClient 향상)
+    api 'org.springframework.boot:spring-boot-starter-webflux'  // WebClient
+
+    // 📝 텍스트 처리 및 파싱
+    api 'org.jsoup:jsoup:1.17.1'                        // HTML 파싱 (크롤링용)
+    api 'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.16.1' // XML 파싱
+
+    // 🔐 암호화 및 해싱
+    api 'commons-codec:commons-codec:1.16.0'            // Base64, MD5, SHA 등
 
     // 🛠️ 유틸리티
+    api 'org.apache.commons:commons-lang3:3.14.0'       // StringUtils, DateUtils 등
+    api 'org.apache.commons:commons-collections4:4.4'   // CollectionUtils
     api 'com.fasterxml.jackson.core:jackson-databind'      // JSON 처리
     api 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'  // Java 8 Time API
     compileOnly 'org.projectlombok:lombok'
@@ -33,7 +52,6 @@ dependencies {
 
     // 📊 모니터링 (Actuator)
     api 'org.springframework.boot:spring-boot-starter-actuator'
-    api 'io.micrometer:micrometer-registry-prometheus'     // Prometheus 메트릭
 
     // 🧪 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
