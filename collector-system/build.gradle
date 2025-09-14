@@ -5,17 +5,29 @@ plugins {
 }
 
 dependencies {
+    // 🔥 공통 라이브러리 (모든 Kafka, MinIO 포함)
     implementation project(':common-lib')
-    implementation 'org.springframework.boot:spring-boot-starter-data-elasticsearch'
-    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
-    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    // 🌐 크롤링 전용 라이브러리들
+    implementation 'org.seleniumhq.selenium:selenium-java:4.16.1'      // 동적 크롤링
+    implementation 'org.seleniumhq.selenium:selenium-chrome-driver:4.16.1'
+    implementation 'io.github.bonigarcia:webdrivermanager:5.6.2'       // WebDriver 자동 관리
+
+    // 🔄 스케줄링 (Quartz)
+    implementation 'org.springframework.boot:spring-boot-starter-quartz'
+
+    // 🗄️ 데이터베이스
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    runtimeOnly 'com.mysql:mysql-connector-j'
+
+    // 🛠️ 기본 도구들
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
+
+    // 🧪 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    runtimeOnly 'com.mysql:mysql-connector-j'
-    testRuntimeOnly 'com.h2database:h2'
+    testImplementation 'org.springframework.kafka:spring-kafka-test'
+    testRuntimeOnly 'com.h2database:h2'                                // 테스트용 DB
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

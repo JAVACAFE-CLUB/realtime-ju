@@ -1,3 +1,5 @@
 # Collector System | 데이터 수집 시스템
 
 - 외부 소스로부터 실시간 데이터를 수집하고 저장하는 시스템
+
+- 의존 방향: application → domain ← infrastructure
