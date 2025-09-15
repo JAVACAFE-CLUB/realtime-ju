@@ -23,6 +23,30 @@ public class AsyncConfig {
         return executor;
     }
 
+    @Bean("ynaTaskExecutor")
+    public TaskExecutor ynaTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(10);
+        executor.setThreadNamePrefix("yna-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean("ynaArticleExecutor")
+    public TaskExecutor ynaArticleExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4); // 동시성 3~5 범위의 기본값
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(0); // 적체 방지
+        executor.setThreadNamePrefix("yna-article-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("minioTaskExecutor")
     public TaskExecutor minioTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
