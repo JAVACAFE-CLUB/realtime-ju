@@ -42,6 +42,30 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
+spring:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+kafka:
+  producer:
+    compression-type: zstd
+    batch-size: 32768
+    linger-ms: 10
+  consumer:
+    max-poll-records: 500
+  topic:
+    partitions: 3
+    replication-factor: 1
+    retention:
+      raw-data-hours: 168
+      refined-data-hours: 336
+minio:
+  init:
+    enabled: true
+    max-attempts: 20
+    initial-delay-ms: 2000
+    backoff-ms: 2000
+
 youtube:
   api:
     key: ${YOUTUBE_API_KEY:}
