@@ -21,7 +21,7 @@ public class YnaConfig {
     @Value("${yna.inter-request-jitter-ms:150}")
     private int interRequestJitterMs;
 
-    @Value("${yna.retry.max-attempts:3}")
+    @Value("${yna.retry.max-attempts:2}")
     private int maxRetries;
 
     @Value("${yna.retry.base-backoff-ms:200}")

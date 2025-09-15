@@ -28,7 +28,7 @@ public class KafkaTopicConfig {
     private String refinedDataRetentionHours;
 
     // ========================================
-    // 🔥 Raw Data Topics (원본 데이터)
+    // Raw Data Topics (원본 데이터)
     // ========================================
     @Bean
     public NewTopic rawWikipediaTopic() {
@@ -41,19 +41,6 @@ public class KafkaTopicConfig {
                 .config("compression.type", "zstd")
                 .config("max.message.bytes", "10485760") // 10MB
                 .config("min.insync.replicas", "1")
-                .build();
-    }
-
-    @Bean
-    public NewTopic rawNewsNaverTopic() {
-        return TopicBuilder.name(KafkaTopics.RAW_NEWS_NAVER)
-                .partitions(defaultPartitions)
-                .replicas(defaultReplicationFactor)
-                .config("cleanup.policy", "delete")
-                .config("retention.ms", hoursToMs(rawDataRetentionHours))
-                .config("segment.ms", "3600000") // 1시간
-                .config("compression.type", "zstd")
-                .config("max.message.bytes", "5242880") // 5MB
                 .build();
     }
 
@@ -71,7 +58,7 @@ public class KafkaTopicConfig {
     }
 
     // ========================================
-    // 🔥 Refined Data Topics (정제된 데이터)
+    // Refined Data Topics (정제된 데이터)
     // ========================================
     @Bean
     public NewTopic refinedArticlesTopic() {
@@ -80,17 +67,6 @@ public class KafkaTopicConfig {
                 .replicas(defaultReplicationFactor)
                 .config("cleanup.policy", "delete")
                 .config("retention.ms", hoursToMs(refinedDataRetentionHours))
-                .config("compression.type", "zstd")
-                .build();
-    }
-
-    @Bean
-    public NewTopic refinedKeywordsTopic() {
-        return TopicBuilder.name(KafkaTopics.REFINED_NEWS_NAVER)
-                .partitions(5)
-                .replicas(defaultReplicationFactor)
-                .config("cleanup.policy", "compact") // 키워드는 압축 정책
-                .config("min.compaction.lag.ms", "3600000") // 1시간 후 압축
                 .config("compression.type", "zstd")
                 .build();
     }
@@ -107,32 +83,11 @@ public class KafkaTopicConfig {
     }
 
     // ========================================
-    // 🔥 Error Handling Topics (짧은 보관)
+    // Error Handling Topics (짧은 보관)
     // ========================================
-    @Bean
-    public NewTopic rawWikipediaRetryTopic() {
-        return createRetryTopic(KafkaTopics.RAW_DOCS_WIKIPEDIA_RETRY);
-    }
-
     @Bean
     public NewTopic rawWikipediaDlqTopic() {
         return createDlqTopic(KafkaTopics.RAW_DOCS_WIKIPEDIA_DLQ);
-    }
-
-    @Bean
-    public NewTopic rawNewsNaverRetryTopic() {
-        return createRetryTopic(KafkaTopics.RAW_NEWS_NAVER_RETRY);
-    }
-
-    @Bean
-    public NewTopic rawNewsNaverDlqTopic() {
-        return createDlqTopic(KafkaTopics.RAW_NEWS_NAVER_DLQ);
-    }
-
-
-    @Bean
-    public NewTopic rawSnsYouTubeRetryTopic() {
-        return createRetryTopic(KafkaTopics.RAW_SNS_YOUTUBE_RETRY);
     }
 
     @Bean
@@ -141,17 +96,8 @@ public class KafkaTopicConfig {
     }
 
     // ========================================
-    // 🔥 Helper Methods
+    // Helper Methods
     // ========================================
-    private NewTopic createRetryTopic(String topicName) {
-        return TopicBuilder.name(topicName)
-                .partitions(1) // 재시도는 순서 보장
-                .replicas(defaultReplicationFactor)
-                .config("cleanup.policy", "delete")
-                .config("retention.ms", "259200000") // 3일
-                .build();
-    }
-
     private NewTopic createDlqTopic(String topicName) {
         return TopicBuilder.name(topicName)
                 .partitions(1)

@@ -45,7 +45,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class YouTubeCollector {
 
     private static final String YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/videos";
-    private static final int MAX_RETRY_ATTEMPTS = 3;
+    private static final int MAX_RETRY_ATTEMPTS = 2;
     private static final long BASE_BACKOFF_MS = 200L;
     private static final int BATCH_SIZE = 1000;
     private static final Pattern HTTP_STATUS_PATTERN = Pattern.compile("HTTP\\s+(\\d{3})\\s+");
@@ -244,7 +244,7 @@ public class YouTubeCollector {
     protected void publishErrorEvent(String collectionId, String rawDataUrl, Exception exception) {
         String errorCode = determineErrorCode(exception);
         boolean retriable = isRetriableError(exception);
-        String topic = retriable ? KafkaTopics.RAW_SNS_YOUTUBE_RETRY : KafkaTopics.RAW_SNS_YOUTUBE_DLQ;
+        String topic = KafkaTopics.RAW_SNS_YOUTUBE_DLQ;
 
         collectorEventPublisher.publishCollectError(
                         ContentSource.SNS_YOUTUBE.name(),

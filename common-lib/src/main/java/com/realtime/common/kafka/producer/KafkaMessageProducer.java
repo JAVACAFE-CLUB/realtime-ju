@@ -187,17 +187,6 @@ public class KafkaMessageProducer {
     }
 
     /**
-     * 재시도 메시지 발송
-     */
-    public CompletableFuture<SendResult<String, Object>> sendRetryMessage(String retryTopic,
-                                                                          ProcessingBaseMessage message) {
-        log.warn("🔄 Sending retry message - Topic: {}, CollectionId: {}",
-                retryTopic, message.getCollectionId());
-
-        return sendMessageWithHeaders(retryTopic, message.getCollectionId(), message, Map.of("retry", true));
-    }
-
-    /**
      * DLQ 메시지 발송
      */
     public CompletableFuture<SendResult<String, Object>> sendDlqMessage(String dlqTopic, ProcessingBaseMessage message,
