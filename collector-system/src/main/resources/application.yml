@@ -57,7 +57,7 @@ yna:
 
   # 재시도 설정
   retry:
-    max-attempts: 3
+    max-attempts: 2
     base-backoff-ms: 200
 
   # HTTP 설정

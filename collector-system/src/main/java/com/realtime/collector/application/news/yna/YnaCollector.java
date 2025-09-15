@@ -35,6 +35,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 @Service
 @Slf4j
@@ -174,11 +175,11 @@ public class YnaCollector {
     }
 
     private boolean isRetriable(Exception e) {
-        String msg = e.getMessage();
-        if (msg == null) {
-            return true;
+        if (e instanceof WebClientResponseException ex) {
+            int status = ex.getStatusCode().value();
+            return status == 429 || status >= 500;
         }
-        return true; // 네트워크 오류 등은 재시도
+        return true; // 네트워크/일시 오류
     }
 
     private void backoff(int attempt) {
@@ -247,8 +248,9 @@ public class YnaCollector {
 
     @Async("kafkaTaskExecutor")
     protected void publishError(String collectionId, Exception e) {
+        boolean retriable = isRetriable(e);
         collectorEventPublisher.publishCollectError(ContentSource.NEWS_YNA.name(), KafkaTopics.RAW_NEWS_YNA_DLQ,
-                collectionId, "", "INTERNAL_SERVER_ERROR", e.getMessage(), false);
+                collectionId, "", "INTERNAL_SERVER_ERROR", e.getMessage(), retriable);
     }
 
     private String createBasePrefix(String collectionId) {

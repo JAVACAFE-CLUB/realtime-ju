@@ -70,7 +70,7 @@ public class WikipediaCollector {
             log.error("Wikipedia 수집 실패 - collectionId={}, lang={}, dumpDate={}, dumpPath={}",
                     collectionId, lang, dumpDate, dumpPath, e);
             boolean retriable = isRetriable(e);
-            String topic = retriable ? KafkaTopics.RAW_DOCS_WIKIPEDIA_RETRY : KafkaTopics.RAW_DOCS_WIKIPEDIA_DLQ;
+            String topic = KafkaTopics.RAW_DOCS_WIKIPEDIA_DLQ;
             collectorEventPublisher.publishCollectError(
                     ContentSource.DOCS_WIKIPEDIA.name(), topic, collectionId, "", "INTERNAL_SERVER_ERROR",
                     e.getMessage(), retriable
