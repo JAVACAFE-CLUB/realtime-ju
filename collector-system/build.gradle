@@ -24,6 +24,11 @@ dependencies {
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
+    // 📰 RSS/Atom 파서
+    implementation 'com.rometools:rome:1.18.0'
+    implementation 'com.rometools:rome-modules:1.18.0'
+
+
     // 🧪 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.kafka:spring-kafka-test'

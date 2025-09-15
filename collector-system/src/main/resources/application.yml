@@ -1,16 +1,7 @@
-spring:
-  profiles:
-    active: local
----
-
 server:
   port: 9080
 
-# 개발 환경 설정
 spring:
-  config:
-    activate:
-      on-profile: local
   datasource:
     url: jdbc:mysql://localhost:3306/${DB_NAME:realtime_db}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true
     username: ${DB_USER:realtime_user}
@@ -23,11 +14,6 @@ spring:
       validation-timeout: 3000
       idle-timeout: 600000
       max-lifetime: 1800000
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:redis1234}
 
   jpa:
     hibernate:
@@ -45,8 +31,33 @@ spring:
 
 logging:
   level:
-    com.realtime.serving: DEBUG
+    com.realtime.collector: DEBUG
     org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.hibernate.orm.jdbc.bind: TRACE
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+youtube:
+  api:
+    key: ${YOUTUBE_API_KEY:}
+
+yna:
+  # RSS 피드
+  feeds: https://www.yna.co.kr/rss/news.xml
+
+  # 동시성 및 요청 간 지연
+  concurrency: 4
+  inter-request-delay-ms: 250
+  inter-request-jitter-ms: 150
+
+  # 재시도 설정
+  retry:
+    max-attempts: 3
+    base-backoff-ms: 200
+
+  # HTTP 설정
+  http:
+    connect-timeout-ms: 2000
+    response-timeout-ms: 5000
+    user-agent: "Mozilla/5.0 (compatible; YnaCollector/1.0; +https://example.com/bot)"
+    accept-language: "ko-KR,ko;q=0.9"
