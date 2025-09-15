@@ -28,6 +28,9 @@ dependencies {
     implementation 'com.rometools:rome:1.18.0'
     implementation 'com.rometools:rome-modules:1.18.0'
 
+    // 📦 압축 해제/처리 (위키 덤프 bz2 등)
+    implementation 'org.apache.commons:commons-compress:1.26.2'
+
 
     // 🧪 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
