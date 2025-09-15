@@ -1,10 +1,8 @@
 package com.realtime.common.kafka.producer;
 
 import com.realtime.common.kafka.message.ProcessingBaseMessage;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -23,14 +21,6 @@ import org.springframework.stereotype.Component;
 public class KafkaMessageProducer {
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
-
-    /**
-     * 기본 메시지 발송 (비동기)
-     */
-    public CompletableFuture<SendResult<String, Object>> sendMessage(String topic, ProcessingBaseMessage message) {
-        String key = message.getCollectionId();
-        return sendMessageWithHeaders(topic, key, message, Map.of());
-    }
 
     /**
      * 키 지정 메시지 발송 (비동기)
@@ -53,7 +43,8 @@ public class KafkaMessageProducer {
     }
 
     /**
-     * 헤더 포함 메시지 발송
+     * 헤더 포함 메시지 발송 - 커스텀 헤더를 병합하고, 도메인 표준 헤더를 추가합니다. - ProcessingBaseMessage.occuredAt 존재 시 KafkaHeaders.TIMESTAMP로
+     * 매핑합니다.
      */
     public CompletableFuture<SendResult<String, Object>> sendMessageWithHeaders(
             String topic, String key, Object payload, java.util.Map<String, Object> headers) {
@@ -80,6 +71,7 @@ public class KafkaMessageProducer {
             }
             if (base.getOccurredAt() != null) {
                 messageBuilder.setHeader("occurred-at", base.getOccurredAt().toString());
+                messageBuilder.setHeader(KafkaHeaders.TIMESTAMP, base.getOccurredAt().toEpochMilli());
             }
         }
 
@@ -98,70 +90,6 @@ public class KafkaMessageProducer {
         return future;
     }
 
-    /**
-     * 동기 메시지 발송 (타임아웃 포함)
-     */
-    public SendResult<String, Object> sendMessageSync(String topic, String key, Object message, long timeoutSeconds) {
-        try {
-            log.debug("🚀 Sending message synchronously to topic: {}, key: {}", topic, key);
-
-            CompletableFuture<SendResult<String, Object>> future = sendMessage(topic, key, message);
-            SendResult<String, Object> result = future.get(timeoutSeconds, TimeUnit.SECONDS);
-
-            log.debug("✅ Message sent synchronously - Topic: {}, Key: {}, Offset: {}",
-                    topic, key, result.getRecordMetadata().offset());
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("❌ Failed to send message synchronously - Topic: {}, Key: {}, Error: {}",
-                    topic, key, e.getMessage());
-            throw new RuntimeException("Failed to send message to Kafka", e);
-        }
-    }
-
-    /**
-     * 배치 메시지 발송
-     */
-    public CompletableFuture<Void> sendBatchMessages(String topic, List<? extends ProcessingBaseMessage> messages) {
-        log.info("🚀 Sending batch of {} messages to topic: {}", messages.size(), topic);
-
-        List<CompletableFuture<SendResult<String, Object>>> futures = messages.stream()
-                .map(message -> sendMessage(topic, message))
-                .toList();
-
-        CompletableFuture<Void> allFutures = CompletableFuture.allOf(
-                futures.toArray(new CompletableFuture[0])
-        );
-
-        return allFutures.whenComplete((result, throwable) -> {
-            if (throwable == null) {
-                log.info("✅ Batch messages sent successfully to topic: {} ({} messages)", topic, messages.size());
-            } else {
-                log.error("❌ Failed to send batch messages to topic: {} - Error: {}", topic, throwable.getMessage());
-            }
-        });
-    }
-
-    /**
-     * 파티션 지정 메시지 발송
-     */
-    public CompletableFuture<SendResult<String, Object>> sendToPartition(
-            String topic, int partition, String key, Object message) {
-
-        log.debug("🚀 Sending message to topic: {}, partition: {}, key: {}", topic, partition, key);
-
-        return kafkaTemplate.send(topic, partition, key, message)
-                .whenComplete((result, throwable) -> {
-                    if (throwable == null) {
-                        log.debug("✅ Message sent to partition {} - Offset: {}",
-                                partition, result.getRecordMetadata().offset());
-                    } else {
-                        log.error("❌ Failed to send message to partition {} - Error: {}",
-                                partition, throwable.getMessage());
-                    }
-                });
-    }
 
     /**
      * 전송 성공 처리
@@ -172,18 +100,13 @@ public class KafkaMessageProducer {
 
         log.debug("✅ Message sent successfully - Topic: {}, Partition: {}, Offset: {}, Key: {}",
                 topic, partition, offset, key);
-
-        // 메시지 상태 업데이트는 도메인 레벨에서 처리
     }
 
     /**
      * 전송 실패 처리
      */
     private void handleSendFailure(String topic, String key, Object message, Throwable throwable) {
-        log.error("❌ Failed to send message - Topic: {}, Key: {}, Error: {}",
-                topic, key, throwable.getMessage());
-
-        // 메시지 상태 업데이트는 도메인 레벨에서 처리
+        log.error("❌ Failed to send message - Topic: {}, Key: {}", topic, key, throwable);
     }
 
     /**

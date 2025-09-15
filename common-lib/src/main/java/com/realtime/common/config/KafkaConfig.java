@@ -37,9 +37,6 @@ public class KafkaConfig {
     @Value("${spring.kafka.bootstrap-servers:localhost:9092}")
     private String bootstrapServers;
 
-    @Value("${spring.kafka.consumer.group-id:realtime-ju}")
-    private String defaultGroupId;
-
     @Value("${kafka.producer.compression-type:zstd}")
     private String compressionType;
 
@@ -52,6 +49,7 @@ public class KafkaConfig {
     @Value("${kafka.producer.linger-ms:10}")
     private int lingerMs;
 
+    
     // ========================================
     // Enhanced Producer Configuration
     // ========================================
@@ -93,25 +91,15 @@ public class KafkaConfig {
     public KafkaTemplate<String, Object> kafkaTemplate() {
         KafkaTemplate<String, Object> template = new KafkaTemplate<>(producerFactory());
 
-        // 전송 완료 로깅
-        template.setDefaultTopic("default-realtime-topic");
-
         log.info("✅ Kafka Producer initialized with compression: {}, batch-size: {}KB",
                 compressionType, batchSize / 1024);
 
         return template;
     }
 
-    // ========================================
-    // Consumer Configuration
-    // ========================================
-    @Bean
-    public ConsumerFactory<String, Object> consumerFactory() {
-        return createConsumerFactory(defaultGroupId);
-    }
-
     /**
-     * 그룹별 맞춤형 Consumer Factory
+     * 그룹별 공통 ConsumerFactory 생성
+     * - 수동 커밋, 타입 헤더 기반 JSON 역직렬화, KRaft 타임아웃 최적화 적용
      */
     public ConsumerFactory<String, Object> createConsumerFactory(String groupId) {
         Map<String, Object> configProps = new HashMap<>();
@@ -123,8 +111,7 @@ public class KafkaConfig {
         configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
 
         // JSON 역직렬화 설정 (보안 강화)
-        configProps.put(JsonDeserializer.TRUSTED_PACKAGES,
-                "com.realtime.common.kafka.message,com.realtime.**.dto");
+        configProps.put(JsonDeserializer.TRUSTED_PACKAGES, "com.realtime");
         configProps.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, true); // 타입 헤더 기반 역직렬화 활성화 (기본 타입 의존 제거)
 
         // 성능 최적화
@@ -147,36 +134,6 @@ public class KafkaConfig {
         return new DefaultKafkaConsumerFactory<>(configProps);
     }
 
-    @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, Object> factory =
-                new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(consumerFactory());
-
-        // 동시성 설정
-        int concurrency = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
-        factory.setConcurrency(concurrency);
-
-        // 수동 커밋 모드
-        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
-
-        // 배치 리스너 지원
-        factory.setBatchListener(true);
-
-        // 향상된 에러 핸들링
-        DefaultErrorHandler errorHandler = new DefaultErrorHandler(new FixedBackOff(1000L, 3));
-        errorHandler.addNotRetryableExceptions(IllegalArgumentException.class);
-        factory.setCommonErrorHandler(errorHandler);
-
-        // 컨테이너 설정
-        factory.getContainerProperties().setPollTimeout(3000);
-
-        log.info("✅ Kafka Consumer initialized with concurrency: {}, max-poll: {}",
-                concurrency, maxPollRecords);
-
-        return factory;
-    }
-
     /**
      * 특정 그룹용 Container Factory
      */
@@ -187,8 +144,19 @@ public class KafkaConfig {
         factory.setConsumerFactory(createConsumerFactory(KafkaGroups.COLLECTOR_GROUP));
 
         // 수집기는 낮은 동시성으로 안정성 우선
-        factory.setConcurrency(2);
+        int concurrency = 2;
+        factory.setConcurrency(concurrency);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+
+        // 공통 에러 핸들러 적용
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(new FixedBackOff(1000L, 3));
+        errorHandler.addNotRetryableExceptions(IllegalArgumentException.class);
+        factory.setCommonErrorHandler(errorHandler);
+
+        log.info("✅ Kafka collector container initialized: concurrency={}, ack={}, batch={}",
+                concurrency,
+                factory.getContainerProperties().getAckMode(),
+                factory.isBatchListener());
 
         return factory;
     }
@@ -200,10 +168,20 @@ public class KafkaConfig {
         factory.setConsumerFactory(createConsumerFactory(KafkaGroups.REFINE_GROUP));
 
         // 정제 시스템은 병렬 처리량을 높임
-        factory.setConcurrency(Math.max(3, Runtime.getRuntime().availableProcessors()))
-        ;
+        int concurrency = Math.max(3, Runtime.getRuntime().availableProcessors());
+        factory.setConcurrency(concurrency);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
         factory.setBatchListener(true);
+
+        // 공통 에러 핸들러 적용
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(new FixedBackOff(1000L, 3));
+        errorHandler.addNotRetryableExceptions(IllegalArgumentException.class);
+        factory.setCommonErrorHandler(errorHandler);
+
+        log.info("✅ Kafka refine container initialized: concurrency={}, ack={}, batch={}",
+                concurrency,
+                factory.getContainerProperties().getAckMode(),
+                factory.isBatchListener());
 
         return factory;
     }
@@ -219,6 +197,8 @@ public class KafkaConfig {
 
         KafkaAdmin admin = new KafkaAdmin(configs);
         admin.setFatalIfBrokerNotAvailable(false); // 개발환경 편의성
+
+        log.info("✅ KafkaAdmin initialized (bootstrapServers={})", bootstrapServers);
 
         return admin;
     }

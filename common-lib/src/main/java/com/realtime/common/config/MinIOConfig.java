@@ -22,8 +22,6 @@ public class MinIOConfig {
     @Value("${minio.secret-key:minioadmin123}")
     private String secretKey;
 
-    // 버킷 초기화 및 라이프사이클 설정은 별도 컴포넌트에서 수행합니다.
-
     @Bean
     public MinioClient minioClient() {
         log.info("🔥 Initializing MinIO Client - Endpoint: {}", endpoint);
