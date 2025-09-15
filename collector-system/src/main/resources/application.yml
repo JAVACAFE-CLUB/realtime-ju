@@ -34,6 +34,11 @@ logging:
     com.realtime.collector: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.orm.jdbc.bind: TRACE
+    org.apache.kafka: WARN
+    org.apache.kafka.clients: WARN
+    org.apache.kafka.clients.consumer: WARN
+    org.apache.kafka.clients.consumer.ConsumerConfig: WARN
+    org.springframework.kafka: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
