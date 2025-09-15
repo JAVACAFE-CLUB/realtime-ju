@@ -1,5 +1,6 @@
 package com.realtime.collector.application;
 
+import com.realtime.collector.application.news.yna.YnaCollector;
 import com.realtime.collector.application.sns.youtube.YouTubeCollector;
 import java.util.concurrent.CompletableFuture;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component;
 public class CollectScheduler {
 
     private final YouTubeCollector youTubeCollector;
+    private final YnaCollector ynaCollector;
 
     @Scheduled(cron = "0 30 * * * *")
     public void scheduleYouTubeCollect() {
@@ -24,7 +26,13 @@ public class CollectScheduler {
             return null;
         });
     }
+
+    @Scheduled(cron = "0 40 * * * *")
+    public void scheduleYnaCollect() {
+        CompletableFuture<Void> future = ynaCollector.collectAndProcessYnaData();
+        future.exceptionally(ex -> {
+            log.error("YNA 스케줄 실행 중 예외", ex);
+            return null;
+        });
+    }
 }
-
-
-

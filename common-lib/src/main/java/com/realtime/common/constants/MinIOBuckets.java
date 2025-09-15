@@ -7,6 +7,7 @@ public final class MinIOBuckets {
     // ========================================
     public static final String RAW_DOCS_WIKIPEDIA = "raw-docs-wikipedia";
     public static final String RAW_NEWS_NAVER = "raw-news-naver";
+    public static final String RAW_NEWS_YNA = "raw-news-yna";
     public static final String RAW_SNS_YOUTUBE = "raw-sns-youtube";
 
     // ========================================
@@ -26,7 +27,7 @@ public final class MinIOBuckets {
 
     public static String[] getAllBuckets() {
         return new String[]{
-                RAW_DOCS_WIKIPEDIA, RAW_NEWS_NAVER, RAW_SNS_YOUTUBE,
+                RAW_DOCS_WIKIPEDIA, RAW_NEWS_NAVER, RAW_NEWS_YNA, RAW_SNS_YOUTUBE,
                 TEMP_PROCESSING, TEMP_UPLOADS,
                 BACKUP_DATA, ARCHIVE_DATA
         };
