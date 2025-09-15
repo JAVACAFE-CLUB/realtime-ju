@@ -178,7 +178,7 @@ public class YouTubeCollector {
 
     private String createMinioFileName(String collectionId) {
         return String.format("%s/%s.json",
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd/HH/mm")),
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd")),
                 collectionId);
     }
 
