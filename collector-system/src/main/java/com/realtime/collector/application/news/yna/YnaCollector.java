@@ -253,7 +253,7 @@ public class YnaCollector {
 
     private String createBasePrefix(String collectionId) {
         return String.format("%s/%s",
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd/HH/mm")),
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd")),
                 collectionId);
     }
 }
