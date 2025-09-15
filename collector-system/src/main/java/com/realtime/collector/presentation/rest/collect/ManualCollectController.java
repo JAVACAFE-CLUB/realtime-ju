@@ -1,5 +1,6 @@
 package com.realtime.collector.presentation.rest.collect;
 
+import com.realtime.collector.application.news.yna.YnaCollector;
 import com.realtime.collector.application.sns.youtube.YouTubeCollector;
 import java.time.Instant;
 import java.util.Map;
@@ -26,7 +27,18 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class ManualCollectController {
 
+    private final YnaCollector ynaCollector;
     private final YouTubeCollector youTubeCollector;
+
+    @PostMapping("/yna")
+    public Mono<ResponseEntity<Map<String, Object>>> triggerYnaCollectPost() {
+        ynaCollector.collectAndProcessYnaData();
+        return Mono.just(ResponseEntity.accepted().body(Map.of(
+                "status", "accepted",
+                "message", "Yna collection started",
+                "acceptedAt", Instant.now().toString()
+        )));
+    }
 
     @PostMapping("/youtube")
     public Mono<ResponseEntity<Map<String, Object>>> triggerYouTubeCollectPost() {
@@ -37,7 +49,4 @@ public class ManualCollectController {
                 "acceptedAt", Instant.now().toString()
         )));
     }
-
 }
-
-

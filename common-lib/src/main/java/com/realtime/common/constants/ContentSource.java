@@ -3,6 +3,7 @@ package com.realtime.common.constants;
 public enum ContentSource {
     DOCS_WIKIPEDIA("DOCS_WIKIPEDIA"),
     NEWS_NAVER("NEWS_NAVER"),
+    NEWS_YNA("NEWS_YNA"),
     SNS_YOUTUBE("SNS_YOUTUBE");
 
     private final String code;
