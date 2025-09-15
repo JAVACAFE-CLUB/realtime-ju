@@ -1,7 +1,9 @@
 package com.realtime.collector.presentation.rest.collect;
 
+import com.realtime.collector.application.docs.wikipedia.WikipediaCollector;
 import com.realtime.collector.application.news.yna.YnaCollector;
 import com.realtime.collector.application.sns.youtube.YouTubeCollector;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -27,8 +29,28 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class ManualCollectController {
 
+    private final WikipediaCollector wikipediaCollector;
     private final YnaCollector ynaCollector;
     private final YouTubeCollector youTubeCollector;
+
+    @PostMapping("/wikipedia")
+    public Mono<ResponseEntity<Map<String, Object>>> triggerWikipediaCollectPost() {
+        // 개발용: local 에서 읽기
+        String dumpPathProp = System.getProperty("wiki.dump.path",
+                "collector-system/data/kowiki-20250901-pages-articles.xml");
+        String lang = System.getProperty("wiki.lang", "ko");
+        String dumpDate = System.getProperty("wiki.dump.date", "20250901");
+        Path resolved = Path.of(dumpPathProp);
+        if (!resolved.isAbsolute()) {
+            resolved = Path.of(System.getProperty("user.dir")).resolve(resolved).normalize();
+        }
+        wikipediaCollector.collectFromLocalDump(resolved, lang, dumpDate);
+        return Mono.just(ResponseEntity.accepted().body(Map.of(
+                "status", "accepted",
+                "message", "Wikipedia collection started",
+                "acceptedAt", Instant.now().toString()
+        )));
+    }
 
     @PostMapping("/yna")
     public Mono<ResponseEntity<Map<String, Object>>> triggerYnaCollectPost() {

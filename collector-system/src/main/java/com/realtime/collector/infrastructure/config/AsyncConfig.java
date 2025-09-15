@@ -79,4 +79,16 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean("wikiTaskExecutor")
+    public TaskExecutor wikiTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(1);
+        executor.setThreadNamePrefix("wiki-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
 }
