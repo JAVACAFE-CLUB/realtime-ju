@@ -1,4 +1,4 @@
-package com.realtime.collector.application;
+package com.realtime.collector.presentation.scheduler;
 
 import com.realtime.collector.application.news.yna.YnaCollector;
 import com.realtime.collector.application.sns.youtube.YouTubeCollector;
