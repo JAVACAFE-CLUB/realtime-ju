@@ -11,6 +11,8 @@
 └─────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
 ```
 
+![data-flow.png](data/data-flow.png)
+
 ## ☁️ 프로젝트 구조
 
 | 시스템              | 설명                           | 포트   |
@@ -56,11 +58,14 @@ cp .env.example .env
 ### 2. 인프라 실행
 
 ```bash
-# MySQL만 실행
-docker-compose up -d mysql
+# 전체 인프라 올리기 (모든 시스템 + kafka-ui)
+scripts/compose-up-all.sh
 
-# 전체 인프라 실행 (Kafka, Elasticsearch, Redis 포함)
-docker-compose --profile kafka --profile elasticsearch --profile redis up -d
+# 수집 시스템 (mysql, kafka, minio) + 개발용 kafka-ui
+scripts/compose-up-collector.sh
+
+# 전체 중지 및 볼륨 정리
+scripts/compose-down.sh
 ```
 
 ### 3. 애플리케이션 빌드
