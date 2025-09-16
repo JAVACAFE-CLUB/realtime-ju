@@ -1,29 +1,40 @@
+name: realtime-ju
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks:
+    - realtime-network
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
   mysql:
+    <<: *service-defaults
     image: mysql:8.0
     container_name: realtime-mysql
-    restart: unless-stopped
+    profiles: [collector, refine, index, serving]
+    env_file:
+      - ./.env
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME}
       MYSQL_USER: ${DB_USER}
       MYSQL_PASSWORD: ${DB_PASSWORD}
-      # MySQL 8.0 호환성 설정
       MYSQL_ROOT_HOST: '%'
     ports:
       - "3306:3306"
     volumes:
-      - mysql_data:/var/lib/mysql    #  데이터 영구 저장
-      - ./docker/mysql/init:/docker-entrypoint-initdb.d    # 초기화 스크립트
-    command: >
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    command: >-
       --default-authentication-plugin=mysql_native_password
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
       --bind-address=0.0.0.0
       --skip-name-resolve
       --log-bin-trust-function-creators=1
-    networks:
-      - realtime-network
     healthcheck:
       test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${DB_USER}", "-p${DB_PASSWORD}" ]
       timeout: 20s
@@ -31,87 +42,66 @@ services:
       interval: 30s
 
   kafka:
+    <<: *service-defaults
     image: confluentinc/cp-kafka:7.4.0
     container_name: realtime-kafka
     hostname: kafka
-    restart: unless-stopped
+    profiles: [collector, refine, index, serving]
     environment:
-      # KRaft 모드 기본 설정
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-
-      # 클러스터 ID (고정값 - 실제 환경에서는 UUID 생성 권장)
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
-
-      # 리스너 설정 (내부/외부 접속 + Controller)
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-
-      # 로그 디렉토리 설정 (메타데이터 포함)
       KAFKA_LOG_DIRS: '/var/lib/kafka/data'
-
-      # 토픽 설정
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-
-      # 성능 최적화
-      KAFKA_MESSAGE_MAX_BYTES: 10485760          # 10MB 최대 메시지 크기
-      KAFKA_REPLICA_FETCH_MAX_BYTES: 10485760    # 10MB 복제 최대 크기
-      KAFKA_COMPRESSION_TYPE: 'zstd'             # 압축 방식 (높은 압축률)
-
-      # 로그 보관 정책
-      KAFKA_LOG_RETENTION_HOURS: 168             # 7일 보관
-      KAFKA_LOG_RETENTION_BYTES: 1073741824      # 1GB 보관
-      KAFKA_LOG_SEGMENT_BYTES: 268435456         # 256MB 세그먼트
-
-      # 자동 토픽 생성 허용
+      KAFKA_MESSAGE_MAX_BYTES: 10485760
+      KAFKA_REPLICA_FETCH_MAX_BYTES: 10485760
+      KAFKA_COMPRESSION_TYPE: 'zstd'
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_RETENTION_BYTES: 1073741824
+      KAFKA_LOG_SEGMENT_BYTES: 268435456
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-      KAFKA_NUM_PARTITIONS: 3                    # 기본 파티션 수
-      KAFKA_DEFAULT_REPLICATION_FACTOR: 1        # 기본 복제본 수
-
-      # KRaft 모드 추가 최적화 설정
-      KAFKA_METADATA_LOG_SEGMENT_BYTES: 33554432              # 32MB 메타데이터 로그 세그먼트
-      KAFKA_METADATA_LOG_MAX_RECORD_BYTES_BETWEEN_SNAPSHOTS: 2097152  # 2MB 스냅샷 간격
-      KAFKA_METADATA_MAX_RETENTION_BYTES: 104857600           # 100MB 메타데이터 최대 보관
-      KAFKA_CONTROLLER_SNAPSHOT_MAX_NEW_RECORD_BYTES: 20971520 # 20MB 스냅샷 트리거
-
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_METADATA_LOG_SEGMENT_BYTES: 33554432
+      KAFKA_METADATA_LOG_MAX_RECORD_BYTES_BETWEEN_SNAPSHOTS: 2097152
+      KAFKA_METADATA_MAX_RETENTION_BYTES: 104857600
+      KAFKA_CONTROLLER_SNAPSHOT_MAX_NEW_RECORD_BYTES: 20971520
     ports:
       - "9092:9092"
       - "29092:29092"
-      - "9093:9093"     # Controller 포트
+      - "9093:9093"
     volumes:
       - kafka_data:/var/lib/kafka/data
-    networks:
-      - realtime-network
     healthcheck:
-      # KRaft 모드 헬스체크
       test: kafka-broker-api-versions --bootstrap-server kafka:29092
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s   # 시작 대기 시간 추가
+      start_period: 30s
 
   minio:
+    <<: *service-defaults
     image: minio/minio:latest
     container_name: realtime-minio
     hostname: minio
-    restart: unless-stopped
+    profiles: [collector, refine]
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin123}
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"   # API 포트
-      - "19000:9001"  # 웹 콘솔 포트
+      - "9000:9000"
+      - "19000:9001"
     volumes:
       - minio_data:/data
-    networks:
-      - realtime-network
     healthcheck:
       test: [ "CMD", "mc", "ready", "local" ]
       interval: 5s
@@ -119,68 +109,59 @@ services:
       retries: 5
 
   kafka-ui:
+    <<: *service-defaults
     image: provectuslabs/kafka-ui:latest
     container_name: realtime-kafka-ui
     hostname: kafka-ui
-    restart: unless-stopped
     depends_on:
       kafka:
-        condition: service_healthy    # Kafka 헬스체크 기반 의존성
+        condition: service_healthy
     environment:
       KAFKA_CLUSTERS_0_NAME: realtime-cluster
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       DYNAMIC_CONFIG_ENABLED: 'true'
     ports:
       - "19092:8080"
-    networks:
-      - realtime-network
     profiles:
-      - dev  # 개발 모드에서만 실행
+      - dev
 
   elasticsearch:
+    <<: *service-defaults
     image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
     container_name: realtime-elasticsearch
-    restart: unless-stopped
+    profiles: [index, serving]
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"  # 메모리 1GB
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
     ports:
       - "9200:9200"
       - "9300:9300"
     volumes:
       - es_data:/usr/share/elasticsearch/data
-    networks:
-      - realtime-network
-    profiles:
-      - elasticsearch
 
   redis:
+    <<: *service-defaults
     image: redis:7.2-alpine
     container_name: realtime-redis
-    restart: unless-stopped
+    profiles: [serving]
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis1234}
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    networks:
-      - realtime-network
-    profiles:
-      - redis
 
   mongodb:
+    <<: *service-defaults
     image: mongo:7.0
     container_name: realtime-mongodb
-    restart: unless-stopped
+    profiles: [refine, index]
     environment:
       MONGO_INITDB_DATABASE: realtime_ju
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
-    networks:
-      - realtime-network
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/realtime_ju --quiet
       interval: 10s
@@ -200,7 +181,7 @@ volumes:
     driver: local
   mongodb_data:
     driver: local
-    
+
 networks:
   realtime-network:
     driver: bridge
