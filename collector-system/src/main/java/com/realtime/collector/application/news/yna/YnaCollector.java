@@ -1,17 +1,20 @@
 package com.realtime.collector.application.news.yna;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.realtime.collector.application.news.yna.config.YnaConfig;
 import com.realtime.collector.application.news.yna.dto.ArticleRecord;
 import com.realtime.collector.application.news.yna.dto.Manifest;
 import com.realtime.collector.application.news.yna.dto.RssItem;
 import com.realtime.collector.application.news.yna.util.YnaRssParser;
+import com.realtime.collector.application.util.CollectorEventAsyncInvoker;
+import com.realtime.collector.application.util.RetryUtils;
 import com.realtime.collector.domain.content.ContentMetadata;
 import com.realtime.collector.domain.content.ContentMetadataRepository;
-import com.realtime.collector.infrastructure.config.YnaConfig;
-import com.realtime.collector.infrastructure.messaging.CollectorEventPublisher;
+import com.realtime.collector.exception.YnaDataCollectionException;
 import com.realtime.common.constants.ContentSource;
 import com.realtime.common.constants.KafkaTopics;
 import com.realtime.common.constants.MinIOBuckets;
+import com.realtime.common.exception.MinioStorageException;
 import com.realtime.common.util.CollectionIdGenerator;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
@@ -27,7 +30,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
@@ -35,21 +37,36 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class YnaCollector {
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final MinioClient minioClient;
     private final ContentMetadataRepository contentMetadataRepository;
-    private final CollectorEventPublisher collectorEventPublisher;
+    private final CollectorEventAsyncInvoker eventAsyncInvoker;
     private final YnaConfig config;
-    @Qualifier("ynaArticleExecutor")
     private final TaskExecutor ynaArticleExecutor;
+
+    public YnaCollector(
+            WebClient webClient,
+            ObjectMapper objectMapper,
+            MinioClient minioClient,
+            ContentMetadataRepository contentMetadataRepository,
+            CollectorEventAsyncInvoker eventAsyncInvoker,
+            YnaConfig config,
+            @Qualifier("ynaArticleExecutor") TaskExecutor ynaArticleExecutor
+    ) {
+        this.webClient = webClient;
+        this.objectMapper = objectMapper;
+        this.minioClient = minioClient;
+        this.contentMetadataRepository = contentMetadataRepository;
+        this.eventAsyncInvoker = eventAsyncInvoker;
+        this.config = config;
+        this.ynaArticleExecutor = ynaArticleExecutor;
+    }
 
     @Async("ynaTaskExecutor")
     public CompletableFuture<Void> collectAndProcessYnaData() {
@@ -79,14 +96,27 @@ public class YnaCollector {
 
             // 5) 성공 이벤트 발행
             int successCount = (int) articles.stream().filter(a -> a.crawlStatus() == 200).count();
-            publishSuccess(collectionId, manifestUrl, successCount);
+            eventAsyncInvoker.publishSuccess(
+                    ContentSource.NEWS_YNA.name(),
+                    KafkaTopics.RAW_NEWS_YNA,
+                    collectionId,
+                    manifestUrl,
+                    successCount);
 
-            log.info("YNA 수집 완료 - collectionId={}, success={} / total={}", collectionId, successCount, articles.size());
+            log.info("✅ YNA 수집 완료 - collectionId={}, success={} / total={}", collectionId, successCount,
+                    articles.size());
             return CompletableFuture.completedFuture(null);
         } catch (Exception e) {
-            log.error("YNA 수집 실패 - collectionId={}", collectionId, e);
-            publishError(collectionId, e);
-            return CompletableFuture.failedFuture(e);
+            log.error("❌ YNA 수집 실패 - collectionId={}", collectionId, e);
+            eventAsyncInvoker.publishError(
+                    ContentSource.NEWS_YNA.name(),
+                    KafkaTopics.RAW_NEWS_YNA_DLQ,
+                    collectionId,
+                    "",
+                    "INTERNAL_SERVER_ERROR",
+                    e.getMessage(),
+                    RetryUtils.isRetriable(e));
+            return CompletableFuture.failedFuture(new YnaDataCollectionException("YNA 데이터 수집 실패", e));
         }
     }
 
@@ -100,20 +130,24 @@ public class YnaCollector {
                 .block();
     }
 
-    private void storeRssToMinio(String collectionId, String feedUrl, String rssXml) throws Exception {
-        byte[] bytes = rssXml.getBytes(StandardCharsets.UTF_8);
-        String key = String.format("%s/rss.xml", createBasePrefix(collectionId));
-        minioClient.putObject(PutObjectArgs.builder()
-                .bucket(MinIOBuckets.RAW_NEWS_YNA)
-                .object(key)
-                .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
-                .contentType("application/xml; charset=utf-8")
-                .userMetadata(Map.of(
-                        "collection-id", collectionId,
-                        "feed-url", feedUrl,
-                        "collection-time", Instant.now().toString()
-                ))
-                .build());
+    private void storeRssToMinio(String collectionId, String feedUrl, String rssXml) {
+        try {
+            byte[] bytes = rssXml.getBytes(StandardCharsets.UTF_8);
+            String key = String.format("%s/rss.xml", createBasePrefix(collectionId));
+            minioClient.putObject(PutObjectArgs.builder()
+                    .bucket(MinIOBuckets.RAW_NEWS_YNA)
+                    .object(key)
+                    .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
+                    .contentType("application/xml; charset=utf-8")
+                    .userMetadata(Map.of(
+                            "collection-id", collectionId,
+                            "feed-url", feedUrl,
+                            "collection-time", Instant.now().toString()
+                    ))
+                    .build());
+        } catch (Exception e) {
+            throw new MinioStorageException("MinIO 저장 실패(rss)", e);
+        }
     }
 
     private List<ArticleRecord> crawlArticlesWithConcurrency(List<RssItem> items, String collectionId) {
@@ -143,7 +177,7 @@ public class YnaCollector {
         int base = config.getInterRequestDelayMs();
         int jitter = ThreadLocalRandom.current().nextInt(config.getInterRequestJitterMs() + 1);
         try {
-            Thread.sleep(base + jitter);
+            Thread.sleep((long) base + jitter);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -159,69 +193,60 @@ public class YnaCollector {
                         .retrieve()
                         .bodyToMono(String.class)
                         .block();
-
+                if (body == null || body.isBlank()) {
+                    throw new IllegalStateException("Empty article body");
+                }
                 String htmlKey = storeHtml(collectionId, item.articleId(), body);
                 return ArticleRecord.success(item, 200, "text/html", "UTF-8", htmlKey);
             } catch (Exception e) {
-                boolean retriable = isRetriable(e);
+                boolean retriable = RetryUtils.isRetriable(e);
                 if (!retriable || attempt == config.getMaxRetries()) {
                     log.warn("기사 크롤 실패 - {} attempt={} retriable={}", item.articleId(), attempt, retriable);
                     return ArticleRecord.failed(item, 500, e.getMessage());
                 }
-                backoff(attempt);
+                RetryUtils.sleepWithBackoff(config.getBaseBackoffMs(), attempt);
             }
         }
         return ArticleRecord.failed(item, 500, "UNKNOWN");
     }
 
-    private boolean isRetriable(Exception e) {
-        if (e instanceof WebClientResponseException ex) {
-            int status = ex.getStatusCode().value();
-            return status == 429 || status >= 500;
-        }
-        return true; // 네트워크/일시 오류
-    }
-
-    private void backoff(int attempt) {
-        long backoff = (long) (config.getBaseBackoffMs() * Math.pow(2, attempt - 1));
-        long jitter = ThreadLocalRandom.current().nextLong(50, 150);
+    private String storeHtml(String collectionId, String articleId, String html) {
         try {
-            Thread.sleep(backoff + jitter);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
+            String key = String.format("%s/%s.html", createBasePrefix(collectionId), articleId);
+            minioClient.putObject(PutObjectArgs.builder()
+                    .bucket(MinIOBuckets.RAW_NEWS_YNA)
+                    .object(key)
+                    .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
+                    .contentType("text/html; charset=utf-8")
+                    .userMetadata(Map.of("article-id", articleId))
+                    .build());
+            return String.format("minio://%s/%s", MinIOBuckets.RAW_NEWS_YNA, key);
+        } catch (Exception e) {
+            throw new MinioStorageException("MinIO 저장 실패(html)", e);
         }
     }
 
-    private String storeHtml(String collectionId, String articleId, String html) throws Exception {
-        byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
-        String key = String.format("%s/%s.html", createBasePrefix(collectionId), articleId);
-        minioClient.putObject(PutObjectArgs.builder()
-                .bucket(MinIOBuckets.RAW_NEWS_YNA)
-                .object(key)
-                .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
-                .contentType("text/html; charset=utf-8")
-                .userMetadata(Map.of("article-id", articleId))
-                .build());
-        return String.format("minio://%s/%s", MinIOBuckets.RAW_NEWS_YNA, key);
-    }
-
-    private String storeManifest(String collectionId, List<String> feeds, List<ArticleRecord> records)
-            throws Exception {
-        Manifest manifest = Manifest.of(collectionId, feeds, records);
-        byte[] bytes = objectMapper.writeValueAsBytes(manifest);
-        String key = String.format("%s/articles-manifest.json", createBasePrefix(collectionId));
-        minioClient.putObject(PutObjectArgs.builder()
-                .bucket(MinIOBuckets.RAW_NEWS_YNA)
-                .object(key)
-                .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
-                .contentType("application/json; charset=utf-8")
-                .userMetadata(Map.of(
-                        "collection-id", collectionId,
-                        "item-count", String.valueOf(records.size()),
-                        "collection-time", Instant.now().toString()
-                ))
-                .build());
-        return String.format("minio://%s/%s", MinIOBuckets.RAW_NEWS_YNA, key);
+    private String storeManifest(String collectionId, List<String> feeds, List<ArticleRecord> records) {
+        try {
+            Manifest manifest = Manifest.of(collectionId, feeds, records);
+            byte[] bytes = objectMapper.writeValueAsBytes(manifest);
+            String key = String.format("%s/articles-manifest.json", createBasePrefix(collectionId));
+            minioClient.putObject(PutObjectArgs.builder()
+                    .bucket(MinIOBuckets.RAW_NEWS_YNA)
+                    .object(key)
+                    .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
+                    .contentType("application/json; charset=utf-8")
+                    .userMetadata(Map.of(
+                            "collection-id", collectionId,
+                            "item-count", String.valueOf(records.size()),
+                            "collection-time", Instant.now().toString()
+                    ))
+                    .build());
+            return String.format("minio://%s/%s", MinIOBuckets.RAW_NEWS_YNA, key);
+        } catch (Exception e) {
+            throw new MinioStorageException("MinIO 저장 실패(manifest)", e);
+        }
     }
 
     private void saveMetadata(List<ArticleRecord> records, String collectionId, String manifestUrl) {
@@ -229,7 +254,7 @@ public class YnaCollector {
         List<ContentMetadata> list = records.stream()
                 .filter(r -> r.crawlStatus() == 200)
                 .map(r -> ContentMetadata.builder()
-                        .source(ContentSource.NEWS_YNA.code())
+                        .source(ContentSource.NEWS_YNA.getCode())
                         .externalId(r.item().articleId())
                         .title(r.item().title())
                         .rawUri(manifestUrl)
@@ -240,18 +265,6 @@ public class YnaCollector {
         contentMetadataRepository.saveAll(list);
     }
 
-    @Async("kafkaTaskExecutor")
-    protected void publishSuccess(String collectionId, String manifestUrl, int count) {
-        collectorEventPublisher.publishCollected(ContentSource.NEWS_YNA.name(), KafkaTopics.RAW_NEWS_YNA,
-                collectionId, manifestUrl, count);
-    }
-
-    @Async("kafkaTaskExecutor")
-    protected void publishError(String collectionId, Exception e) {
-        boolean retriable = isRetriable(e);
-        collectorEventPublisher.publishCollectError(ContentSource.NEWS_YNA.name(), KafkaTopics.RAW_NEWS_YNA_DLQ,
-                collectionId, "", "INTERNAL_SERVER_ERROR", e.getMessage(), retriable);
-    }
 
     private String createBasePrefix(String collectionId) {
         return String.format("%s/%s",
