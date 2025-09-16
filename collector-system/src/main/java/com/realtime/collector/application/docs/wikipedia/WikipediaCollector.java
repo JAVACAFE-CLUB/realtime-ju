@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.realtime.collector.application.docs.wikipedia.dto.ShardStats;
 import com.realtime.collector.application.docs.wikipedia.dto.WikiManifest;
 import com.realtime.collector.application.docs.wikipedia.util.WikiParsingContext;
+import com.realtime.collector.application.docs.wikipedia.util.WikiShardManager;
 import com.realtime.collector.application.docs.wikipedia.util.WikiXmlParser;
 import com.realtime.collector.application.docs.wikipedia.util.WikiXmlUtil;
 import com.realtime.collector.application.util.CollectorEventAsyncInvoker;
@@ -58,6 +59,7 @@ public class WikipediaCollector {
     private final ContentMetadataRepository contentMetadataRepository;
     private final CollectorEventAsyncInvoker eventAsyncInvoker;
     private final WikiXmlParser xmlParser;
+    private final WikiShardManager shardManager;
 
     @Value("${collector.wikipedia.pages-per-shard:5000}")
     private int pagesPerShard;
@@ -170,6 +172,7 @@ public class WikipediaCollector {
                 .collectionId(collectionId)
                 .pagesPerShard(pagesPerShard)
                 .basePrefix(basePrefix)
+                .shardManager(shardManager)
                 .build();
 
         XMLStreamReader xmlReader = null;

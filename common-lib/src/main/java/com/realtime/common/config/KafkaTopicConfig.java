@@ -49,6 +49,22 @@ public class KafkaTopicConfig {
     }
 
     @Bean
+    public NewTopic rawNewsYnaTopic() {
+        String retentionMs = hoursToMs(rawDataRetentionHours);
+        NewTopic topic = TopicBuilder.name(KafkaTopics.RAW_NEWS_YNA)
+                .partitions(defaultPartitions)
+                .replicas(defaultReplicationFactor)
+                .config("cleanup.policy", "delete")
+                .config("retention.ms", retentionMs)
+                .config("segment.ms", "86400000") // 1일
+                .config("compression.type", "zstd")
+                .build();
+        log.info("✅ Ensuring topic: name={}, partitions={}, replicas={}, retentionMs={} (raw)",
+                KafkaTopics.RAW_NEWS_YNA, defaultPartitions, defaultReplicationFactor, retentionMs);
+        return topic;
+    }
+
+    @Bean
     public NewTopic rawSnsYouTubeTopic() {
         String retentionMs = hoursToMs(rawDataRetentionHours);
         NewTopic topic = TopicBuilder.name(KafkaTopics.RAW_SNS_YOUTUBE)
@@ -106,6 +122,11 @@ public class KafkaTopicConfig {
     @Bean
     public NewTopic rawSnsYouTubeDlqTopic() {
         return createDlqTopic(KafkaTopics.RAW_SNS_YOUTUBE_DLQ);
+    }
+
+    @Bean
+    public NewTopic rawNewsYnaDlqTopic() {
+        return createDlqTopic(KafkaTopics.RAW_NEWS_YNA_DLQ);
     }
 
     // Helper Methods
