@@ -26,6 +26,7 @@ public final class YnaRssParser {
             SyndFeedInput input = new SyndFeedInput();
             SyndFeed feed = input.build(
                     new XmlReader(new ByteArrayInputStream(rssXml.getBytes(StandardCharsets.UTF_8))));
+            
             List<RssItem> results = new ArrayList<>();
             for (SyndEntry entry : feed.getEntries()) {
                 String link = entry.getLink();
