@@ -1,12 +1,18 @@
+## =====================
+## Server
+## =====================
 server:
   port: 9080
 
+## =====================
+## Spring configuration
+## =====================
 spring:
   datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/${DB_NAME:realtime_db}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true
     username: ${DB_USER:realtime_user}
     password: ${DB_PASSWORD:realtime_password}
-    driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 20
       minimum-idle: 5
@@ -16,36 +22,41 @@ spring:
       max-lifetime: 1800000
 
   jpa:
+    open-in-view: false
+    show-sql: true
     hibernate:
       ddl-auto: update
-    show-sql: true
     properties:
       hibernate:
         format_sql: true
         use_sql_comments: true
-    open-in-view: false
 
   sql:
     init:
       mode: never
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+## =====================
+## Logging
+## =====================
 logging:
   level:
     com.realtime.collector: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE
     org.apache.kafka: WARN
     org.apache.kafka.clients: WARN
     org.apache.kafka.clients.consumer: WARN
     org.apache.kafka.clients.consumer.ConsumerConfig: WARN
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE
     org.springframework.kafka: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
-spring:
-  kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-
+## =====================
+## Application Kafka (custom)
+## =====================
 kafka:
   producer:
     compression-type: zstd
@@ -59,6 +70,10 @@ kafka:
     retention:
       raw-data-hours: 168
       refined-data-hours: 336
+
+## =====================
+## MinIO
+## =====================
 minio:
   init:
     enabled: true
@@ -66,27 +81,36 @@ minio:
     initial-delay-ms: 2000
     backoff-ms: 2000
 
-youtube:
-  api:
-    key: ${YOUTUBE_API_KEY:}
+## =====================
+## Collector runtime
+## =====================
+collector:
+  wikipedia:
+    pages-per-shard: 5000
+  youtube:
+    api:
+      key: ${YOUTUBE_API_KEY:}
+    batch-size: 1000
+    retry:
+      max-attempts: 2
+      base-backoff-ms: 200
+  yna:
+    # RSS 피드
+    feeds: https://www.yna.co.kr/rss/news.xml
 
-yna:
-  # RSS 피드
-  feeds: https://www.yna.co.kr/rss/news.xml
+    # 동시성 및 요청 간 지연
+    concurrency: 4
+    inter-request-delay-ms: 250
+    inter-request-jitter-ms: 150
 
-  # 동시성 및 요청 간 지연
-  concurrency: 4
-  inter-request-delay-ms: 250
-  inter-request-jitter-ms: 150
+    # HTTP 설정
+    http:
+      connect-timeout-ms: 2000
+      response-timeout-ms: 5000
+      user-agent: "Mozilla/5.0 (compatible; YnaCollector/1.0; +https://example.com/bot)"
+      accept-language: "ko-KR,ko;q=0.9"
 
-  # 재시도 설정
-  retry:
-    max-attempts: 2
-    base-backoff-ms: 200
-
-  # HTTP 설정
-  http:
-    connect-timeout-ms: 2000
-    response-timeout-ms: 5000
-    user-agent: "Mozilla/5.0 (compatible; YnaCollector/1.0; +https://example.com/bot)"
-    accept-language: "ko-KR,ko;q=0.9"
+    # 재시도 설정
+    retry:
+      max-attempts: 2
+      base-backoff-ms: 200
