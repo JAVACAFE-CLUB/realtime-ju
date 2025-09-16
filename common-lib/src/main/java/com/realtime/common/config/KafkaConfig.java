@@ -22,6 +22,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.util.backoff.FixedBackOff;
@@ -107,11 +108,15 @@ public class KafkaConfig {
         // 기본 설정
         configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         configProps.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
-        configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
+        // ErrorHandlingDeserializer로 감싸 역직렬화 오류를 컨테이너 에러 핸들러로 위임
+        configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        configProps.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
+        configProps.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
 
         // JSON 역직렬화 설정 (보안 강화)
-        configProps.put(JsonDeserializer.TRUSTED_PACKAGES, "com.realtime");
+        // 패키지 패턴을 보다 명시적으로 확장하여 하위 패키지 신뢰
+        configProps.put(JsonDeserializer.TRUSTED_PACKAGES, "com.realtime.*");
         configProps.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, true); // 타입 헤더 기반 역직렬화 활성화 (기본 타입 의존 제거)
 
         // 성능 최적화
