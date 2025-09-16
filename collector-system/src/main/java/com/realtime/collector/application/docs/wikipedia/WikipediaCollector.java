@@ -1,17 +1,19 @@
 package com.realtime.collector.application.docs.wikipedia;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.JsonGenerator;
 import com.realtime.collector.application.docs.wikipedia.dto.ShardStats;
 import com.realtime.collector.application.docs.wikipedia.dto.WikiManifest;
-import com.realtime.collector.application.docs.wikipedia.dto.WikiPage;
+import com.realtime.collector.application.docs.wikipedia.util.WikiParsingContext;
+import com.realtime.collector.application.docs.wikipedia.util.WikiXmlParser;
 import com.realtime.collector.application.docs.wikipedia.util.WikiXmlUtil;
+import com.realtime.collector.application.util.CollectorEventAsyncInvoker;
+import com.realtime.collector.application.util.RetryUtils;
 import com.realtime.collector.domain.content.ContentMetadata;
 import com.realtime.collector.domain.content.ContentMetadataRepository;
-import com.realtime.collector.infrastructure.messaging.CollectorEventPublisher;
 import com.realtime.common.constants.ContentSource;
 import com.realtime.common.constants.KafkaTopics;
 import com.realtime.common.constants.MinIOBuckets;
+import com.realtime.common.exception.MinioStorageException;
 import com.realtime.common.util.CollectionIdGenerator;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
@@ -19,349 +21,248 @@ import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.zip.GZIPOutputStream;
 import javax.xml.stream.XMLInputFactory;
-import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+
+/**
+ * 로컬 Wikipedia 덤프(XML 또는 bzip2 압축)를 파싱하여 NDJSON 샤드로 업로드하고, 매니페스트를 생성/저장한 뒤 수집 메타데이터와 이벤트를 발행하는 수집기입니다.
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class WikipediaCollector {
 
+    private static final String WIKI_COLLECTION_PREFIX = "WIKI";
+    private static final String SCHEMA_VERSION = "1";
+    private static final DateTimeFormatter DUMP_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final DateTimeFormatter PREFIX_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy/MM/dd");
+
     private final MinioClient minioClient;
     private final ObjectMapper objectMapper;
     private final ContentMetadataRepository contentMetadataRepository;
-    private final CollectorEventPublisher collectorEventPublisher;
+    private final CollectorEventAsyncInvoker eventAsyncInvoker;
+    private final WikiXmlParser xmlParser;
 
+    @Value("${collector.wikipedia.pages-per-shard:5000}")
+    private int pagesPerShard;
+
+    /**
+     * 비동기로 로컬 덤프 파일을 파싱/업로드합니다.
+     *
+     * @param dumpPath 덤프 파일 경로(bz2 지원)
+     * @param lang     언어 코드(예: ko, en)
+     * @param dumpDate 덤프 기준일(yyyyMMdd)
+     */
     @Async("wikiTaskExecutor")
-    public CompletableFuture<Void> collectFromLocalDump(Path dumpPath, String lang, String dumpDate) {
-        String collectionId = CollectionIdGenerator.generateId("WIKI");
-        try (InputStream is = openMaybeCompressed(dumpPath)) {
-            ShardStats stats = streamParseAndUploadShards(is, lang, dumpDate, collectionId);
+    public void collectFromLocalDump(Path dumpPath, String lang, String dumpDate) {
+        String collectionId = CollectionIdGenerator.generateId(WIKI_COLLECTION_PREFIX);
+
+        try {
+            log.info("Wikipedia 수집 시작 - collectionId={}, lang={}, dumpDate={}", collectionId, lang, dumpDate);
+
+            // 1) 데이터 수집: 덤프 파일을 파싱하여 NDJSON 샤드로 업로드하고 통계 정보 수집
+            ShardStats stats = processWikipediaDump(dumpPath, lang, dumpDate, collectionId);
+
+            // 2) 매니페스트 저장: 수집된 샤드들의 메타데이터를 포함한 매니페스트 파일을 MinIO에 저장
             String manifestUrl = storeManifest(collectionId, lang, dumpDate, stats);
+
+            // 3) 수집 메타데이터 저장: 데이터베이스에 수집 작업의 메타데이터 정보 저장
             saveCollectionMetadata(collectionId, manifestUrl, lang, dumpDate);
-            collectorEventPublisher.publishCollected(
+
+            // 4) 성공 이벤트 발행: Kafka를 통해 수집 완료 이벤트를 다른 시스템에 알림
+            eventAsyncInvoker.publishSuccess(
                     ContentSource.DOCS_WIKIPEDIA.name(),
                     KafkaTopics.RAW_DOCS_WIKIPEDIA,
                     collectionId,
                     manifestUrl,
                     stats.getPagesTotal()
             );
-            log.info("Wikipedia 수집 완료 - collectionId={}, pagesTotal={}, shardsTotal={}", collectionId,
-                    stats.getPagesTotal(), stats.getShardsTotal());
-            return CompletableFuture.completedFuture(null);
+
+            log.info("✅ Wikipedia 수집 완료 - collectionId={}, pagesTotal={}, shardsTotal={}",
+                    collectionId, stats.getPagesTotal(), stats.getShardsTotal());
+
         } catch (Exception e) {
-            log.error("Wikipedia 수집 실패 - collectionId={}, lang={}, dumpDate={}, dumpPath={}",
+            log.error("❌ Wikipedia 수집 실패 - collectionId={}, lang={}, dumpDate={}, dumpPath={}",
                     collectionId, lang, dumpDate, dumpPath, e);
-            boolean retriable = isRetriable(e);
-            String topic = KafkaTopics.RAW_DOCS_WIKIPEDIA_DLQ;
-            collectorEventPublisher.publishCollectError(
-                    ContentSource.DOCS_WIKIPEDIA.name(), topic, collectionId, "", "INTERNAL_SERVER_ERROR",
-                    e.getMessage(), retriable
+
+            boolean retriable = RetryUtils.isRetriable(e);
+            eventAsyncInvoker.publishError(
+                    ContentSource.DOCS_WIKIPEDIA.name(),
+                    KafkaTopics.RAW_DOCS_WIKIPEDIA_DLQ,
+                    collectionId,
+                    "",
+                    "INTERNAL_SERVER_ERROR",
+                    e.getMessage(),
+                    retriable
             );
-            return CompletableFuture.failedFuture(e);
         }
     }
 
+    /**
+     * 덤프 파일을 열고 파싱/업로드를 수행하여 통계를 반환합니다.
+     */
+    private ShardStats processWikipediaDump(Path dumpPath, String lang, String dumpDate, String collectionId)
+            throws IOException, XMLStreamException {
+
+        try (InputStream inputStream = openMaybeCompressed(dumpPath)) {
+            return parseAndUploadShards(inputStream, lang, dumpDate, collectionId);
+        }
+    }
+
+    /**
+     * bz2 확장자면 bzip2 스트림으로 감싸고, 아니면 버퍼링된 파일 스트림을 반환합니다.
+     */
     private InputStream openMaybeCompressed(Path path) throws IOException {
-        InputStream fis = new BufferedInputStream(Files.newInputStream(path));
-        String name = path.getFileName() != null ? path.getFileName().toString() : "";
-        if (name.endsWith(".bz2") || name.endsWith(".bz")) {
-            return new BZip2CompressorInputStream(fis, true);
+        String fileName = WikiXmlUtil.getFileName(path);
+
+        if (WikiXmlUtil.isCompressed(fileName)) {
+            InputStream fileInputStream = new BufferedInputStream(Files.newInputStream(path));
+            try {
+                return new BZip2CompressorInputStream(fileInputStream, true);
+            } catch (IOException e) {
+                closeQuietly(fileInputStream);
+                throw e;
+            }
+        } else {
+            return new BufferedInputStream(Files.newInputStream(path));
         }
-        return fis;
     }
 
-    // SAX/StAX로 <page> 단위 스트리밍 파싱하여 NDJSON GZIP 샤드 업로드
-    private ShardStats streamParseAndUploadShards(InputStream is, String lang, String dumpDate, String collectionId)
-            throws Exception {
-        XMLInputFactory factory = XMLInputFactory.newFactory();
-        XMLStreamReader reader = factory.createXMLStreamReader(is, "UTF-8");
-
-        int pagesPerShard = 5000; // 기본 샤드 단위(페이지 수)
-        String prefix = createBasePrefix(lang, dumpDate, collectionId);
-        int shardIndex = 0;
-        ShardWriter shard = null;
-
-        ShardStats stats = new ShardStats();
-        stats.setLang(lang);
-        stats.setDumpDate(dumpDate);
-        stats.setShardKeys(new ArrayList<>());
-
-        WikiPage page = null;
-        String currentElement = null;
-        String currentParent = null;
-        StringBuilder textBuffer = null;
-
+    /**
+     * 조용히 close 시도(실패 무시).
+     */
+    private void closeQuietly(InputStream stream) {
         try {
-            while (reader.hasNext()) {
-                int event = reader.next();
-                switch (event) {
-                    case XMLStreamConstants.START_ELEMENT -> {
-                        String name = reader.getLocalName();
-                        currentElement = name;
-                        if ("page".equals(name)) {
-                            page = new WikiPage();
-                        } else if ("revision".equals(name)) {
-                            currentParent = "revision";
-                        } else if ("contributor".equals(name)) {
-                            currentParent = "contributor";
-                        } else if ("redirect".equals(name) && page != null) {
-                            String titleAttr = getAttribute(reader, "title");
-                            if (titleAttr != null) {
-                                page.setRedirectTitle(titleAttr);
-                            }
-                        }
-                        // 값이 필요한 요소는 버퍼 초기화
-                        if (page != null && ("title".equals(name)
-                                || "text".equals(name)
-                                || "username".equals(name)
-                                || "ns".equals(name)
-                                || "id".equals(name)
-                                || "timestamp".equals(name))) {
-                            textBuffer = new StringBuilder(1024);
-                        }
-                    }
-                    case javax.xml.stream.XMLStreamConstants.CHARACTERS, javax.xml.stream.XMLStreamConstants.CDATA -> {
-                        if (page != null && currentElement != null && textBuffer != null && !reader.isWhiteSpace()) {
-                            textBuffer.append(reader.getText());
-                        }
-                    }
-                    case javax.xml.stream.XMLStreamConstants.END_ELEMENT -> {
-                        String name = reader.getLocalName();
+            if (stream != null) {
+                stream.close();
+            }
+        } catch (IOException ignore) {
+            // 조용히 무시
+        }
+    }
 
-                        if (page != null && textBuffer != null && currentElement != null && currentElement.equals(
-                                name)) {
-                            String value = textBuffer.toString();
-                            switch (name) {
-                                case "title" -> page.setTitle(value);
-                                case "ns" -> page.setNs(
-                                        WikiXmlUtil.parseIntSafe(
-                                                value));
-                                case "id" -> {
-                                    if ("revision".equals(currentParent)) {
-                                        page.setRevisionId(value);
-                                    } else if (currentParent == null) {
-                                        // 페이지 최상위 id
-                                        page.setPageId(value);
-                                    } else if ("contributor".equals(currentParent)) {
-                                        // contributor id는 현재 스키마에 저장하지 않음
-                                    }
-                                }
-                                case "timestamp" -> page.setTimestamp(value);
-                                case "username" -> page.setContributor(value);
-                                case "text" -> page.setText(value);
-                            }
-                        }
+    /**
+     * XML을 파싱하여 샤드를 업로드하고, 최종 통계를 반환합니다.
+     */
+    private ShardStats parseAndUploadShards(InputStream inputStream, String lang, String dumpDate, String collectionId)
+            throws XMLStreamException, IOException {
 
-                        // clear current element buffer
-                        if (textBuffer != null && name.equals(currentElement)) {
-                            textBuffer = null;
-                        }
+        String basePrefix = createBasePrefix(dumpDate, collectionId);
+        WikiParsingContext context = WikiParsingContext.builder()
+                .lang(lang)
+                .dumpDate(dumpDate)
+                .collectionId(collectionId)
+                .pagesPerShard(pagesPerShard)
+                .basePrefix(basePrefix)
+                .build();
 
-                        if ("contributor".equals(name) || "revision".equals(name)) {
-                            currentParent = null;
-                        }
-
-                        if ("page".equals(name) && page != null) {
-                            // 샤드 오픈
-                            if (shard == null || shard.pagesInShard >= pagesPerShard) {
-                                if (shard != null) {
-                                    shard.close();
-                                    uploadShard(prefix, shard, collectionId, lang, dumpDate, stats);
-                                }
-                                shard = ShardWriter.openTemp(prefix, shardIndex++, objectMapper);
-                            }
-
-                            // NDJSON 한 줄 기록 (null-safe)
-                            Map<String, Object> json = new LinkedHashMap<>();
-                            json.put("collectionId", collectionId);
-                            json.put("lang", lang);
-                            json.put("dumpDate", dumpDate);
-                            json.put("pageId", page.getPageId() != null ? page.getPageId() : "");
-                            json.put("title", page.getTitle() != null ? page.getTitle() : "");
-                            json.put("ns", page.getNs() != null ? page.getNs() : -1);
-                            json.put("redirectTitle", page.getRedirectTitle() != null ? page.getRedirectTitle() : "");
-                            json.put("revisionId", page.getRevisionId() != null ? page.getRevisionId() : "");
-                            json.put("timestamp", page.getTimestamp() != null ? page.getTimestamp() : "");
-                            json.put("contributor", page.getContributor() != null ? page.getContributor() : "");
-                            json.put("text", page.getText() != null ? page.getText() : "");
-                            objectMapper.writeValue(shard.jsonGen, json);
-                            shard.jsonGen.writeRaw('\n');
-
-                            shard.pagesInShard++;
-                            stats.setPagesTotal(stats.getPagesTotal() + 1);
-                            page = null;
-                        }
-                        currentElement = null;
-                    }
-                    default -> {
-                        // ignore
-                    }
+        XMLStreamReader xmlReader = null;
+        try {
+            XMLInputFactory factory = XMLInputFactory.newFactory();
+            xmlReader = factory.createXMLStreamReader(inputStream, "UTF-8");
+            xmlParser.parse(xmlReader, context);
+        } finally {
+            if (xmlReader != null) {
+                try {
+                    xmlReader.close();
+                } catch (Exception ignore) {
+                    //
                 }
             }
-        } finally {
-            try {
-                reader.close();
-            } catch (Exception ignore) {
-            }
         }
 
-        if (shard != null) {
-            shard.close();
-            uploadShard(prefix, shard, collectionId, lang, dumpDate, stats);
-        }
-
-        return stats;
+        return context.getStats();
     }
 
-    private void uploadShard(String prefix, ShardWriter shard, String collectionId,
-                             String lang, String dumpDate, ShardStats stats) throws Exception {
-        long size = Files.size(shard.tempPath);
-        String shardKey = String.format("%s/part-%05d.ndjson.gz", prefix, shard.shardIndex);
-        try (InputStream in = Files.newInputStream(shard.tempPath)) {
-            minioClient.putObject(PutObjectArgs.builder()
+    /**
+     * 매니페스트 JSON을 생성하여 MinIO에 저장하고 경로를 반환합니다.
+     */
+    private String storeManifest(String collectionId, String lang, String dumpDate, ShardStats stats) {
+        try {
+            WikiManifest manifest = WikiManifest.builder()
+                    .collectionId(collectionId)
+                    .lang(lang)
+                    .dumpDate(dumpDate)
+                    .pagesTotal(stats.getPagesTotal())
+                    .shardsTotal(stats.getShardsTotal())
+                    .bytesTotal(stats.getBytesTotal())
+                    .shards(stats.getShardKeys())
+                    .schemaVersion(SCHEMA_VERSION)
+                    .createdAt(Instant.now().toString())
+                    .build();
+
+            String prefix = createBasePrefix(dumpDate, collectionId);
+            String manifestKey = String.format("%s/manifest.json", prefix);
+
+            byte[] manifestBytes = objectMapper.writeValueAsBytes(manifest);
+
+            PutObjectArgs putArgs = PutObjectArgs.builder()
                     .bucket(MinIOBuckets.RAW_DOCS_WIKIPEDIA)
-                    .object(shardKey)
-                    .stream(in, size, -1)
-                    .contentType("application/x-ndjson")
+                    .object(manifestKey)
+                    .stream(new ByteArrayInputStream(manifestBytes), manifestBytes.length, -1)
+                    .contentType("application/json; charset=utf-8;")
                     .userMetadata(Map.of(
                             "collection-id", collectionId,
-                            "lang", lang,
-                            "dump-date", dumpDate,
-                            "pages", String.valueOf(shard.pagesInShard)
+                            "schema-version", SCHEMA_VERSION
                     ))
-                    .build());
-        }
-        stats.setBytesTotal(stats.getBytesTotal() + size);
-        stats.setShardsTotal(stats.getShardsTotal() + 1);
-        stats.getShardKeys().add(shardKey);
-        try {
-            Files.deleteIfExists(shard.tempPath);
-        } catch (IOException ignore) {
+                    .build();
+
+            minioClient.putObject(putArgs);
+
+            return String.format("minio://%s/%s", MinIOBuckets.RAW_DOCS_WIKIPEDIA, manifestKey);
+        } catch (Exception e) {
+            throw new MinioStorageException("매니페스트 저장 실패", e);
         }
     }
 
-    private String storeManifest(String collectionId, String lang, String dumpDate, ShardStats stats) throws Exception {
-        String prefix = createBasePrefix(lang, dumpDate, collectionId);
-        WikiManifest manifest = new WikiManifest();
-        manifest.setCollectionId(collectionId);
-        manifest.setLang(lang);
-        manifest.setDumpDate(dumpDate);
-        manifest.setPagesTotal(stats.getPagesTotal());
-        manifest.setShardsTotal(stats.getShardsTotal());
-        manifest.setBytesTotal(stats.getBytesTotal());
-        manifest.setShards(stats.getShardKeys());
-        manifest.setSchemaVersion("1");
-        manifest.setCreatedAt(Instant.now().toString());
-
-        byte[] bytes = objectMapper.writeValueAsBytes(manifest);
-        String key = String.format("%s/manifest.json", prefix);
-        minioClient.putObject(PutObjectArgs.builder()
-                .bucket(MinIOBuckets.RAW_DOCS_WIKIPEDIA)
-                .object(key)
-                .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
-                .contentType("application/json; charset=utf-8")
-                .userMetadata(Map.of(
-                        "collection-id", collectionId,
-                        "schema-version", manifest.getSchemaVersion()
-                ))
-                .build());
-        return String.format("minio://%s/%s", MinIOBuckets.RAW_DOCS_WIKIPEDIA, key);
-    }
-
+    /**
+     * 수집 결과를 메타데이터 저장소에 저장합니다.
+     */
     private void saveCollectionMetadata(String collectionId, String manifestUrl, String lang, String dumpDate) {
-        ContentMetadata meta = ContentMetadata.builder()
-                .source(ContentSource.DOCS_WIKIPEDIA.code())
+        ContentMetadata metadata = ContentMetadata.builder()
+                .source(ContentSource.DOCS_WIKIPEDIA.getCode())
                 .externalId(collectionId)
                 .title(String.format("Wikipedia Dump %s %s", lang, dumpDate))
                 .rawUri(manifestUrl)
                 .collectionId(collectionId)
                 .collectedAt(LocalDateTime.now())
                 .build();
-        contentMetadataRepository.saveAll(List.of(meta));
+
+        contentMetadataRepository.saveAll(List.of(metadata));
     }
 
-    private boolean isRetriable(Exception e) {
-        return true;
-    }
-
-    private String createBasePrefix(String lang, String dumpDate, String collectionId) {
-        // 위키는 덤프일 기준: yyyy/MM/dd/{collectionId}
-        java.time.LocalDate dt = parseDumpDateOrToday(dumpDate);
-        String day = dt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd"));
-        return String.format("%s/%s", day, collectionId);
-    }
-
-    private static java.time.LocalDate parseDumpDateOrToday(String dumpDate) {
+    /**
+     * 업로드 경로의 날짜/수집ID 기반 prefix를 생성합니다.
+     */
+    private String createBasePrefix(String dumpDate, String collectionId) {
+        LocalDate date = LocalDate.now();
         try {
             if (dumpDate != null && dumpDate.length() == 8) {
-                return java.time.LocalDate.parse(dumpDate, java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
+                date = LocalDate.parse(dumpDate, DUMP_DATE_FORMATTER);
             }
         } catch (Exception ignore) {
-        }
-        return java.time.LocalDate.now();
-    }
-
-    private static class ShardWriter implements AutoCloseable {
-        final int shardIndex;
-        final Path tempPath;
-        final GZIPOutputStream gzipOut;
-        final JsonGenerator jsonGen;
-        int pagesInShard = 0;
-
-        private ShardWriter(int shardIndex, Path tempPath, GZIPOutputStream gzipOut, JsonGenerator jsonGen) {
-            this.shardIndex = shardIndex;
-            this.tempPath = tempPath;
-            this.gzipOut = gzipOut;
-            this.jsonGen = jsonGen;
+            log.warn("Invalid dump date format: {}, using today's date", dumpDate);
         }
 
-        static ShardWriter openTemp(String prefix, int shardIndex, ObjectMapper objectMapper) throws IOException {
-            Path temp = Files.createTempFile("wiki-shard-" + shardIndex + "-",
-                    ".ndjson.gz");
-            OutputStream fos = Files.newOutputStream(temp);
-            GZIPOutputStream gz = new GZIPOutputStream(
-                    new java.io.BufferedOutputStream(fos), true);
-            JsonGenerator gen;
-            try {
-                gen = objectMapper.getFactory().createGenerator(gz);
-                gen.disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET);
-            } catch (Exception e) {
-                try { gz.close(); } catch (IOException ignore) {}
-                throw e;
-            }
-            return new ShardWriter(shardIndex, temp, gz, gen);
-        }
-
-        public void close() throws IOException {
-            try {
-                jsonGen.flush();
-                jsonGen.close(); // AUTO_CLOSE_TARGET 비활성화 상태이므로 gzipOut은 닫히지 않음
-            } catch (Exception ignore) {}
-            gzipOut.flush();
-            gzipOut.finish();
-            gzipOut.close();
-        }
-    }
-
-    private static String getAttribute(XMLStreamReader reader, String localName) {
-        return WikiXmlUtil.getAttribute(reader, localName);
+        String formattedDate = date.format(PREFIX_DATE_FORMATTER);
+        return String.format("%s/%s", formattedDate, collectionId);
     }
 }
+
+
