@@ -1,4 +1,4 @@
-package com.realtime.collector.presentation.rest.collect;
+package com.realtime.collector.presentation.rest;
 
 import com.realtime.collector.application.docs.wikipedia.WikipediaCollector;
 import com.realtime.collector.application.news.yna.YnaCollector;
@@ -27,7 +27,7 @@ import reactor.core.publisher.Mono;
 @RequestMapping("/collect")
 @RequiredArgsConstructor
 @Slf4j
-public class ManualCollectController {
+public class CollectTriggerController {
 
     private final WikipediaCollector wikipediaCollector;
     private final YnaCollector ynaCollector;
