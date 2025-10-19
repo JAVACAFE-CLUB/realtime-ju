@@ -21,12 +21,6 @@ public class YnaConfig {
     @Value("${collector.yna.inter-request-jitter-ms:150}")
     private int interRequestJitterMs;
 
-    @Value("${collector.yna.retry.max-attempts:2}")
-    private int maxRetries;
-
-    @Value("${collector.yna.retry.base-backoff-ms:200}")
-    private int baseBackoffMs;
-
     @Value("${collector.yna.http.connect-timeout-ms:2000}")
     private int connectTimeoutMs;
 

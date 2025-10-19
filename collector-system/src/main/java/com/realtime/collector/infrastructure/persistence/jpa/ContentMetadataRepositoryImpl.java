@@ -16,6 +16,11 @@ public class ContentMetadataRepositoryImpl implements ContentMetadataRepository 
     public void saveAll(List<ContentMetadata> entities) {
         jpaRepository.saveAll(entities);
     }
+
+    @Override
+    public void save(ContentMetadata entity) {
+        jpaRepository.save(entity);
+    }
 }
 
 

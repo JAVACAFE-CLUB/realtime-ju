@@ -31,6 +31,9 @@ dependencies {
     // 📦 압축 해제/처리 (위키 덤프 bz2 등)
     implementation 'org.apache.commons:commons-compress:1.26.2'
 
+    // 재시도
+    implementation 'org.springframework.retry:spring-retry'
+    implementation 'org.springframework:spring-aspects'
 
     // 🧪 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'

@@ -1,15 +1,14 @@
 package com.realtime.collector.application.news.yna;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.realtime.collector.application.news.yna.config.YnaConfig;
 import com.realtime.collector.application.news.yna.dto.ArticleRecord;
-import com.realtime.collector.application.news.yna.dto.Manifest;
 import com.realtime.collector.application.news.yna.dto.RssItem;
 import com.realtime.collector.application.news.yna.util.YnaRssParser;
 import com.realtime.collector.application.util.CollectorEventAsyncInvoker;
 import com.realtime.collector.application.util.RetryUtils;
 import com.realtime.collector.domain.content.ContentMetadata;
 import com.realtime.collector.domain.content.ContentMetadataRepository;
+import com.realtime.collector.exception.RetriableException;
 import com.realtime.collector.exception.YnaDataCollectionException;
 import com.realtime.common.constants.ContentSource;
 import com.realtime.common.constants.KafkaTopics;
@@ -34,25 +33,27 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpHeaders;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 @Service
 @Slf4j
 public class YnaCollector {
 
     private final WebClient webClient;
-    private final ObjectMapper objectMapper;
     private final MinioClient minioClient;
     private final ContentMetadataRepository contentMetadataRepository;
-    private final CollectorEventAsyncInvoker eventAsyncInvoker;
+    private final CollectorEventAsyncInvoker eventPublisher;
     private final YnaConfig config;
-    private final TaskExecutor ynaArticleExecutor;
+    private final TaskExecutor articleExecutor;
 
     public YnaCollector(
             WebClient webClient,
-            ObjectMapper objectMapper,
             MinioClient minioClient,
             ContentMetadataRepository contentMetadataRepository,
             CollectorEventAsyncInvoker eventAsyncInvoker,
@@ -60,67 +61,88 @@ public class YnaCollector {
             @Qualifier("ynaArticleExecutor") TaskExecutor ynaArticleExecutor
     ) {
         this.webClient = webClient;
-        this.objectMapper = objectMapper;
         this.minioClient = minioClient;
         this.contentMetadataRepository = contentMetadataRepository;
-        this.eventAsyncInvoker = eventAsyncInvoker;
+        this.eventPublisher = eventAsyncInvoker;
         this.config = config;
-        this.ynaArticleExecutor = ynaArticleExecutor;
+        this.articleExecutor = ynaArticleExecutor;
     }
+
+    // ============================================================
+    // 메인 진입점
+    // ============================================================
 
     @Async("ynaTaskExecutor")
     public CompletableFuture<Void> collectAndProcessYnaData() {
-        String collectionId = CollectionIdGenerator.generateId("YNA");
+        String batchId = CollectionIdGenerator.generateId("YNA");
+        log.info("🚀 YNA 수집 시작 - batchId={}", batchId);
+
         try {
-            // 1) RSS 수집 (다중 피드 지원)
-            List<RssItem> rssItems = new ArrayList<>();
-            for (String feedUrl : config.getFeeds()) {
-                String rssXml = fetchRssXml(feedUrl);
-                storeRssToMinio(collectionId, feedUrl, rssXml);
-                rssItems.addAll(YnaRssParser.parse(rssXml));
+            // Step 1: RSS 피드 수집
+            List<RssItem> rssItems = collectAllRssFeeds(batchId);
+            if (rssItems.isEmpty()) {
+                log.warn("⚠️ 수집된 RSS 아이템 없음 - batchId={}", batchId);
+                return CompletableFuture.completedFuture(null);
             }
 
-            // 중복 제거(articleId)
-            List<RssItem> deduped = rssItems.stream()
-                    .collect(Collectors.toMap(RssItem::articleId, it -> it, (a, b) -> a))
-                    .values().stream().toList();
+            // Step 2: 중복 제거
+            List<RssItem> uniqueItems = deduplicateItems(rssItems);
 
-            // 2) 기사 크롤링 (동시성 + 요청 지연)
-            List<ArticleRecord> articles = crawlArticlesWithConcurrency(deduped, collectionId);
+            // Step 3: 병렬 크롤링 시작
+            startParallelCrawling(uniqueItems, batchId);
 
-            // 3) 매니페스트 저장(JSON) + HTML 저장은 crawl 단계에서 수행
-            String manifestUrl = storeManifest(collectionId, config.getFeeds(), articles);
-
-            // 4) 메타데이터 저장(DB)
-            saveMetadata(articles, collectionId, manifestUrl);
-
-            // 5) 성공 이벤트 발행
-            int successCount = (int) articles.stream().filter(a -> a.crawlStatus() == 200).count();
-            eventAsyncInvoker.publishSuccess(
-                    ContentSource.NEWS_YNA.name(),
-                    KafkaTopics.RAW_NEWS_YNA,
-                    collectionId,
-                    manifestUrl,
-                    successCount);
-
-            log.info("✅ YNA 수집 완료 - collectionId={}, success={} / total={}", collectionId, successCount,
-                    articles.size());
+            log.info("✅ YNA 수집 요청 완료 - batchId={}", batchId);
             return CompletableFuture.completedFuture(null);
+
         } catch (Exception e) {
-            log.error("❌ YNA 수집 실패 - collectionId={}", collectionId, e);
-            eventAsyncInvoker.publishError(
-                    ContentSource.NEWS_YNA.name(),
-                    KafkaTopics.RAW_NEWS_YNA_DLQ,
-                    collectionId,
-                    "",
-                    "INTERNAL_SERVER_ERROR",
-                    e.getMessage(),
-                    RetryUtils.isRetriable(e));
+            log.error("❌ YNA 수집 실패 - batchId={}", batchId, e);
+            // 배치 단위 실패는 기존대로 배치 ID를 키로 사용
+            publishErrorEvent(batchId, "", e, "BATCH_PROCESSING_ERROR");
             return CompletableFuture.failedFuture(new YnaDataCollectionException("YNA 데이터 수집 실패", e));
         }
     }
 
-    private String fetchRssXml(String feedUrl) {
+    // ============================================================
+    // Step 1: RSS 피드 수집
+    // ============================================================
+
+    private List<RssItem> collectAllRssFeeds(String batchId) {
+        List<RssItem> allItems = new ArrayList<>();
+        List<String> feedUrls = config.getFeeds();
+
+        log.info("📡 RSS 피드 수집 시작 - batchId={}, feeds={}", batchId, feedUrls.size());
+
+        for (String feedUrl : feedUrls) {
+            try {
+                List<RssItem> items = collectSingleFeed(feedUrl, batchId);
+                allItems.addAll(items);
+                log.info("✅ RSS 피드 수집 성공 - url={}, items={}", feedUrl, items.size());
+
+            } catch (Exception e) {
+                log.error("❌ RSS 피드 수집 실패 - url={}", feedUrl, e);
+                publishRssFeedError(feedUrl, batchId, e);
+                // 다음 피드 계속 처리
+            }
+        }
+
+        log.info("📦 전체 RSS 수집 완료 - batchId={}, totalItems={}", batchId, allItems.size());
+        return allItems;
+    }
+
+    private List<RssItem> collectSingleFeed(String feedUrl, String batchId) {
+        // 1. RSS XML 다운로드
+        String rssXml = downloadRssXml(feedUrl);
+
+        // 2. MinIO에 원본 저장
+        saveRssXmlToStorage(batchId, feedUrl, rssXml);
+
+        // 3. XML 파싱
+        return parseRssXml(rssXml);
+    }
+
+    private String downloadRssXml(String feedUrl) {
+        log.debug("⬇️ RSS XML 다운로드 - url={}", feedUrl);
+
         return webClient.get()
                 .uri(feedUrl)
                 .header(HttpHeaders.USER_AGENT, config.getUserAgent())
@@ -130,145 +152,280 @@ public class YnaCollector {
                 .block();
     }
 
-    private void storeRssToMinio(String collectionId, String feedUrl, String rssXml) {
+    private void saveRssXmlToStorage(String batchId, String feedUrl, String rssXml) {
         try {
-            byte[] bytes = rssXml.getBytes(StandardCharsets.UTF_8);
-            String key = String.format("%s/rss.xml", createBasePrefix(collectionId));
+            String objectKey = buildRssObjectKey(batchId);
+            byte[] xmlBytes = rssXml.getBytes(StandardCharsets.UTF_8);
+
             minioClient.putObject(PutObjectArgs.builder()
                     .bucket(MinIOBuckets.RAW_NEWS_YNA)
-                    .object(key)
-                    .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
+                    .object(objectKey)
+                    .stream(new ByteArrayInputStream(xmlBytes), xmlBytes.length, -1)
                     .contentType("application/xml; charset=utf-8")
-                    .userMetadata(Map.of(
-                            "collection-id", collectionId,
-                            "feed-url", feedUrl,
-                            "collection-time", Instant.now().toString()
-                    ))
+                    .userMetadata(buildRssMetadata(batchId, feedUrl))
                     .build());
+
+            log.debug("💾 RSS XML 저장 완료 - key={}", objectKey);
+
         } catch (Exception e) {
-            throw new MinioStorageException("MinIO 저장 실패(rss)", e);
+            log.warn("⚠️ RSS XML 저장 실패 - batchId={}, url={}", batchId, feedUrl, e);
+            // RSS 저장 실패는 치명적이지 않으므로 계속 진행
         }
     }
 
-    private List<ArticleRecord> crawlArticlesWithConcurrency(List<RssItem> items, String collectionId) {
-        Semaphore semaphore = new Semaphore(Math.max(1, config.getConcurrency()));
-        List<CompletableFuture<ArticleRecord>> futures = new ArrayList<>();
+    private List<RssItem> parseRssXml(String rssXml) {
+        return YnaRssParser.parse(rssXml);
+    }
+
+    // ============================================================
+    // Step 2: 중복 제거
+    // ============================================================
+
+    private List<RssItem> deduplicateItems(List<RssItem> items) {
+        Map<String, RssItem> uniqueMap = items.stream()
+                .collect(Collectors.toMap(
+                        RssItem::articleId,
+                        item -> item,
+                        (existing, duplicate) -> existing
+                ));
+
+        return new ArrayList<>(uniqueMap.values());
+    }
+
+    // ============================================================
+    // Step 3: 병렬 크롤링
+    // ============================================================
+
+    private void startParallelCrawling(List<RssItem> items, String batchId) {
+        Semaphore rateLimiter = new Semaphore(config.getConcurrency());
+
+        log.info("🔄 병렬 크롤링 시작 - batchId={}, items={}, concurrency={}",
+                batchId, items.size(), config.getConcurrency());
+
         for (RssItem item : items) {
-            futures.add(CompletableFuture.supplyAsync(() -> fetchArticleWithThrottle(item, semaphore, collectionId),
-                    ynaArticleExecutor));
+            String contentId = item.articleId();
+            crawlArticleAsync(item, contentId, batchId, rateLimiter);
         }
-        return futures.stream().map(CompletableFuture::join).toList();
     }
 
-    private ArticleRecord fetchArticleWithThrottle(RssItem item, Semaphore semaphore, String collectionId) {
+    private void crawlArticleAsync(RssItem item, String contentId, String batchId, Semaphore rateLimiter) {
+        CompletableFuture
+                .supplyAsync(() -> crawlArticle(item, batchId, rateLimiter), articleExecutor)
+                .thenAccept(article -> processArticleResult(article, contentId, batchId))
+                .exceptionally(ex -> {
+                    // 기사 단위 실패는 contentId를 Kafka 키로 사용
+                    publishErrorEvent(contentId, "", new Exception(ex.getMessage()), "CRAWL_FAILED");
+                    return null;
+                });
+    }
+
+    private ArticleRecord crawlArticle(RssItem item, String batchId, Semaphore rateLimiter) {
         try {
-            semaphore.acquire();
-            sleepInterRequest();
-            return fetchArticle(item, collectionId);
+            // 동시성 제어
+            rateLimiter.acquire();
+
+            // 요청 간격 대기
+            waitBetweenRequests();
+
+            // 기사 다운로드 (재시도 포함)
+            return downloadArticleWithRetry(item, batchId);
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return ArticleRecord.failed(item, 499, "INTERRUPTED");
+
         } finally {
-            semaphore.release();
+            rateLimiter.release();
         }
     }
 
-    private void sleepInterRequest() {
-        int base = config.getInterRequestDelayMs();
-        int jitter = ThreadLocalRandom.current().nextInt(config.getInterRequestJitterMs() + 1);
+    private void waitBetweenRequests() {
+        int delayMs = config.getInterRequestDelayMs();
+        int jitterMs = ThreadLocalRandom.current().nextInt(config.getInterRequestJitterMs() + 1);
+        int totalDelayMs = delayMs + jitterMs;
+
         try {
-            Thread.sleep((long) base + jitter);
+            Thread.sleep(totalDelayMs);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
 
-    private ArticleRecord fetchArticle(RssItem item, String collectionId) {
-        for (int attempt = 1; attempt <= config.getMaxRetries(); attempt++) {
-            try {
-                String body = webClient.get()
-                        .uri(item.link())
-                        .header(HttpHeaders.USER_AGENT, config.getUserAgent())
-                        .header(HttpHeaders.ACCEPT_LANGUAGE, config.getAcceptLanguage())
-                        .retrieve()
-                        .bodyToMono(String.class)
-                        .block();
-                if (body == null || body.isBlank()) {
-                    throw new IllegalStateException("Empty article body");
-                }
-                String htmlKey = storeHtml(collectionId, item.articleId(), body);
-                return ArticleRecord.success(item, 200, "text/html", "UTF-8", htmlKey);
-            } catch (Exception e) {
-                boolean retriable = RetryUtils.isRetriable(e);
-                if (!retriable || attempt == config.getMaxRetries()) {
-                    log.warn("기사 크롤 실패 - {} attempt={} retriable={}", item.articleId(), attempt, retriable);
-                    return ArticleRecord.failed(item, 500, e.getMessage());
-                }
-                RetryUtils.sleepWithBackoff(config.getBaseBackoffMs(), attempt);
-            }
+    private ArticleRecord downloadArticleWithRetry(RssItem item, String batchId) {
+        try {
+            // @Retryable 메서드 호출
+            String html = downloadArticleHtmlWithRetry(item.link(), item.articleId());
+
+            // MinIO에 저장
+            String objectKey = saveArticleHtmlToStorage(batchId, item.articleId(), html);
+
+            // 성공 레코드 반환
+            return ArticleRecord.success(item, 200, "text/html", "UTF-8", objectKey);
+
+        } catch (Exception e) {
+            log.warn("❌ 기사 크롤링 최종 실패 - articleId={}", item.articleId(), e);
+            return ArticleRecord.failed(item, 500, e.getMessage());
         }
-        return ArticleRecord.failed(item, 500, "UNKNOWN");
     }
 
-    private String storeHtml(String collectionId, String articleId, String html) {
+    /**
+     * `@Retryable`을 사용한 재시도 로직
+     * <p>
+     * - maxAttempts: 최대 3번 시도 - backoff: 1초부터 시작, 2배씩 증가 (최대 10초) - recover: 재시도 실패 시 복구 메서드
+     */
+    @Retryable(
+            retryFor = {
+                    WebClientRequestException.class,
+                    WebClientResponseException.TooManyRequests.class,
+                    WebClientResponseException.ServiceUnavailable.class,
+                    WebClientResponseException.GatewayTimeout.class,
+                    RetriableException.class
+            },
+            maxAttempts = 3,
+            backoff = @Backoff(
+                    delay = 1000,      // 1초
+                    multiplier = 2.0,  // 2배씩 증가
+                    maxDelay = 10000   // 최대 10초
+            ),
+            listeners = "retryListener"
+    )
+    private String downloadArticleHtmlWithRetry(String articleUrl, String articleId) {
+        log.debug("⬇️ 기사 다운로드 시도 - articleId={}, url={}", articleId, articleUrl);
+
+        String html = webClient.get()
+                .uri(articleUrl)
+                .header(HttpHeaders.USER_AGENT, config.getUserAgent())
+                .header(HttpHeaders.ACCEPT_LANGUAGE, config.getAcceptLanguage())
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        if (html == null || html.isBlank()) {
+            throw new RetriableException("Empty article body");
+        }
+
+        return html;
+    }
+
+    private String saveArticleHtmlToStorage(String batchId, String articleId, String html) {
         try {
-            byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
-            String key = String.format("%s/%s.html", createBasePrefix(collectionId), articleId);
+            String objectKey = buildArticleObjectKey(batchId, articleId);
+            byte[] htmlBytes = html.getBytes(StandardCharsets.UTF_8);
+
             minioClient.putObject(PutObjectArgs.builder()
                     .bucket(MinIOBuckets.RAW_NEWS_YNA)
-                    .object(key)
-                    .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
+                    .object(objectKey)
+                    .stream(new ByteArrayInputStream(htmlBytes), htmlBytes.length, -1)
                     .contentType("text/html; charset=utf-8")
                     .userMetadata(Map.of("article-id", articleId))
                     .build());
-            return String.format("minio://%s/%s", MinIOBuckets.RAW_NEWS_YNA, key);
+
+            return buildMinioUri(objectKey);
+
         } catch (Exception e) {
-            throw new MinioStorageException("MinIO 저장 실패(html)", e);
+            throw new MinioStorageException("MinIO HTML 저장 실패", e);
         }
     }
 
-    private String storeManifest(String collectionId, List<String> feeds, List<ArticleRecord> records) {
-        try {
-            Manifest manifest = Manifest.of(collectionId, feeds, records);
-            byte[] bytes = objectMapper.writeValueAsBytes(manifest);
-            String key = String.format("%s/articles-manifest.json", createBasePrefix(collectionId));
-            minioClient.putObject(PutObjectArgs.builder()
-                    .bucket(MinIOBuckets.RAW_NEWS_YNA)
-                    .object(key)
-                    .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
-                    .contentType("application/json; charset=utf-8")
-                    .userMetadata(Map.of(
-                            "collection-id", collectionId,
-                            "item-count", String.valueOf(records.size()),
-                            "collection-time", Instant.now().toString()
-                    ))
-                    .build());
-            return String.format("minio://%s/%s", MinIOBuckets.RAW_NEWS_YNA, key);
-        } catch (Exception e) {
-            throw new MinioStorageException("MinIO 저장 실패(manifest)", e);
+    // ============================================================
+    // Step 4: 결과 처리
+    // ============================================================
+
+    private void processArticleResult(ArticleRecord article, String contentId, String batchId) {
+        if (article.crawlStatus() == 200) {
+            // 1. DB에 메타데이터 저장
+            saveContentMetadata(article, contentId, batchId);
+
+            // 2. Kafka 성공 이벤트 발행
+            publishSuccessEvent(contentId, article.htmlObjectKey());
+
+            log.debug("✅ 기사 처리 성공 - contentId={}", contentId);
+        } else {
+            // 기사 단위 실패는 contentId를 Kafka 키로 사용
+            publishErrorEvent(contentId, "", new Exception(article.errorMessage()), "CRAWL_FAILED");
+
+            log.warn("⚠️ 기사 크롤링 실패 - contentId={}, status={}, error={}",
+                    contentId, article.crawlStatus(), article.errorMessage());
         }
     }
 
-    private void saveMetadata(List<ArticleRecord> records, String collectionId, String manifestUrl) {
-        LocalDateTime now = LocalDateTime.now();
-        List<ContentMetadata> list = records.stream()
-                .filter(r -> r.crawlStatus() == 200)
-                .map(r -> ContentMetadata.builder()
-                        .source(ContentSource.NEWS_YNA.getCode())
-                        .externalId(r.item().articleId())
-                        .title(r.item().title())
-                        .rawUri(manifestUrl)
-                        .collectionId(collectionId)
-                        .collectedAt(now)
-                        .build())
-                .toList();
-        contentMetadataRepository.saveAll(list);
+    private void saveContentMetadata(ArticleRecord record, String contentId, String batchId) {
+        ContentMetadata metadata = ContentMetadata.builder()
+                .source(ContentSource.NEWS_YNA.getCode())
+                .externalId(contentId)
+                .title(record.item().title())
+                .rawUri(record.htmlObjectKey())
+                .collectionId(batchId)
+                .collectedAt(LocalDateTime.now())
+                .build();
+
+        contentMetadataRepository.save(metadata);
     }
 
+    // ============================================================
+    // Kafka 이벤트 발행
+    // ============================================================
 
-    private String createBasePrefix(String collectionId) {
-        return String.format("%s/%s",
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd")),
-                collectionId);
+    private void publishSuccessEvent(String contentId, String objectKey) {
+        eventPublisher.publishSuccess(
+                ContentSource.NEWS_YNA.name(),
+                KafkaTopics.RAW_NEWS_YNA,
+                contentId,  // Kafka 키
+                objectKey, // MinIO URI
+                1
+        );
+    }
+
+    private void publishRssFeedError(String feedUrl, String batchId, Exception e) {
+        eventPublisher.publishError(
+                ContentSource.NEWS_YNA.name(),
+                KafkaTopics.RAW_NEWS_YNA_DLQ,
+                batchId,
+                feedUrl,
+                "RSS_FEED_ERROR",
+                e.getMessage(),
+                RetryUtils.isRetriable(e)
+        );
+    }
+
+    private void publishErrorEvent(String kafkaKey, String rawDataUrl, Exception e, String errorCode) {
+        eventPublisher.publishError(
+                ContentSource.NEWS_YNA.name(),
+                KafkaTopics.RAW_NEWS_YNA_DLQ,
+                kafkaKey,
+                rawDataUrl,
+                errorCode,
+                e.getMessage(),
+                RetryUtils.isRetriable(e)
+        );
+    }
+
+    // ============================================================
+    // 유틸리티 메서드
+    // ============================================================
+
+    private String buildRssObjectKey(String batchId) {
+        return String.format("%s/rss.xml", buildBasePath(batchId));
+    }
+
+    private String buildArticleObjectKey(String batchId, String articleId) {
+        return String.format("%s/%s.html", buildBasePath(batchId), articleId);
+    }
+
+    private String buildBasePath(String batchId) {
+        String datePath = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
+        return String.format("%s/%s", datePath, batchId);
+    }
+
+    private String buildMinioUri(String objectKey) {
+        return String.format("minio://%s/%s", MinIOBuckets.RAW_NEWS_YNA, objectKey);
+    }
+
+    private Map<String, String> buildRssMetadata(String batchId, String feedUrl) {
+        return Map.of(
+                "batch-id", batchId,
+                "feed-url", feedUrl,
+                "collected-at", Instant.now().toString()
+        );
     }
 }

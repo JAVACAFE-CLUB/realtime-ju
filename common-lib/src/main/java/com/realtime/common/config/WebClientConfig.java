@@ -27,11 +27,11 @@ public class WebClientConfig {
             .build();
 
         HttpClient httpClient = HttpClient.create(provider)
-            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 3000)
-            .responseTimeout(Duration.ofSeconds(5))
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 8000)
+            .responseTimeout(Duration.ofSeconds(15))
             .doOnConnected(conn -> conn
-                .addHandlerLast(new ReadTimeoutHandler(5))
-                .addHandlerLast(new WriteTimeoutHandler(5))
+                .addHandlerLast(new ReadTimeoutHandler(15))
+                .addHandlerLast(new WriteTimeoutHandler(10))
             );
 
         ExchangeStrategies exchangeStrategies = ExchangeStrategies.builder()
