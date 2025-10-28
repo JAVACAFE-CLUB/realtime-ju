@@ -172,19 +172,15 @@ public class WikipediaCollector {
                 .shardManager(shardManager)
                 .build();
 
-        XMLStreamReader xmlReader = null;
-        try {
-            XMLInputFactory factory = XMLInputFactory.newFactory();
-            xmlReader = factory.createXMLStreamReader(inputStream, "UTF-8");
+        XMLInputFactory factory = XMLInputFactory.newFactory();
+        XMLStreamReader xmlReader = factory.createXMLStreamReader(inputStream, "UTF-8");
+
+        try (AutoCloseable autoClose = xmlReader::close) {
             xmlParser.parse(xmlReader, context);
-        } finally {
-            if (xmlReader != null) {
-                try {
-                    xmlReader.close();
-                } catch (Exception ignore) {
-                    //
-                }
-            }
+        } catch (XMLStreamException | IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new XMLStreamException("Failed to parse XML or close reader", e);
         }
 
         return context.getStats();
