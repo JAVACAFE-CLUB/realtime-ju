@@ -10,6 +10,7 @@ import com.realtime.collector.domain.content.ContentMetadataRepository;
 import com.realtime.collector.exception.YouTubeApiException;
 import com.realtime.collector.exception.YouTubeDataCollectionException;
 import com.realtime.common.constants.ContentSource;
+import com.realtime.common.constants.DateTimeFormats;
 import com.realtime.common.constants.KafkaTopics;
 import com.realtime.common.constants.MinIOBuckets;
 import com.realtime.common.exception.BusinessException;
@@ -25,7 +26,6 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -44,7 +44,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class YouTubeCollector {
 
     private static final String YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/videos";
-    private static final DateTimeFormatter MINIO_PATH_FORMATTER = DateTimeFormatter.ofPattern("yyyy/MM/dd");
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
@@ -165,7 +164,7 @@ public class YouTubeCollector {
             String jsonData = objectMapper.writeValueAsString(response);
             byte[] bytes = jsonData.getBytes(StandardCharsets.UTF_8);
             String fileName = String.format("%s/%s.json",
-                    LocalDateTime.now().format(MINIO_PATH_FORMATTER),
+                    LocalDateTime.now().format(DateTimeFormats.STORAGE_PATH_DATE),
                     collectionId);
 
             minioClient.putObject(PutObjectArgs.builder()

@@ -11,9 +11,12 @@ import com.realtime.collector.application.util.CollectorEventAsyncInvoker;
 import com.realtime.collector.application.util.RetryUtils;
 import com.realtime.collector.domain.content.ContentMetadata;
 import com.realtime.collector.domain.content.ContentMetadataRepository;
+import com.realtime.common.constants.CollectionPrefixes;
 import com.realtime.common.constants.ContentSource;
+import com.realtime.common.constants.DateTimeFormats;
 import com.realtime.common.constants.KafkaTopics;
 import com.realtime.common.constants.MinIOBuckets;
+import com.realtime.common.constants.SchemaVersions;
 import com.realtime.common.exception.MinioStorageException;
 import com.realtime.common.util.CollectionIdGenerator;
 import io.minio.MinioClient;
@@ -27,7 +30,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import javax.xml.stream.XMLInputFactory;
@@ -49,11 +51,6 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class WikipediaCollector {
 
-    private static final String WIKI_COLLECTION_PREFIX = "WIKI";
-    private static final String SCHEMA_VERSION = "1";
-    private static final DateTimeFormatter DUMP_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
-    private static final DateTimeFormatter PREFIX_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy/MM/dd");
-
     private final MinioClient minioClient;
     private final ObjectMapper objectMapper;
     private final ContentMetadataRepository contentMetadataRepository;
@@ -73,7 +70,7 @@ public class WikipediaCollector {
      */
     @Async("wikiTaskExecutor")
     public void collectFromLocalDump(Path dumpPath, String lang, String dumpDate) {
-        String collectionId = CollectionIdGenerator.generateId(WIKI_COLLECTION_PREFIX);
+        String collectionId = CollectionIdGenerator.generateId(CollectionPrefixes.WIKIPEDIA);
 
         try {
             log.info("Wikipedia 수집 시작 - collectionId={}, lang={}, dumpDate={}", collectionId, lang, dumpDate);
@@ -206,7 +203,7 @@ public class WikipediaCollector {
                     .shardsTotal(stats.getShardsTotal())
                     .bytesTotal(stats.getBytesTotal())
                     .shards(stats.getShardKeys())
-                    .schemaVersion(SCHEMA_VERSION)
+                    .schemaVersion(SchemaVersions.V1)
                     .createdAt(Instant.now().toString())
                     .build();
 
@@ -222,7 +219,7 @@ public class WikipediaCollector {
                     .contentType("application/json; charset=utf-8;")
                     .userMetadata(Map.of(
                             "collection-id", collectionId,
-                            "schema-version", SCHEMA_VERSION
+                            "schema-version", SchemaVersions.V1
                     ))
                     .build();
 
@@ -257,13 +254,13 @@ public class WikipediaCollector {
         LocalDate date = LocalDate.now();
         try {
             if (dumpDate != null && dumpDate.length() == 8) {
-                date = LocalDate.parse(dumpDate, DUMP_DATE_FORMATTER);
+                date = LocalDate.parse(dumpDate, DateTimeFormats.DUMP_DATE);
             }
         } catch (Exception ignore) {
             log.warn("Invalid dump date format: {}, using today's date", dumpDate);
         }
 
-        String formattedDate = date.format(PREFIX_DATE_FORMATTER);
+        String formattedDate = date.format(DateTimeFormats.STORAGE_PATH_DATE);
         return String.format("%s/%s", formattedDate, collectionId);
     }
 }

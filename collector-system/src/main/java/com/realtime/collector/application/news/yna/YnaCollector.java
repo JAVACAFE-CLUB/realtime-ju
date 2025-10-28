@@ -11,6 +11,7 @@ import com.realtime.collector.domain.content.ContentMetadataRepository;
 import com.realtime.collector.exception.RetriableException;
 import com.realtime.collector.exception.YnaDataCollectionException;
 import com.realtime.common.constants.ContentSource;
+import com.realtime.common.constants.DateTimeFormats;
 import com.realtime.common.constants.KafkaTopics;
 import com.realtime.common.constants.MinIOBuckets;
 import com.realtime.common.exception.MinioStorageException;
@@ -21,7 +22,6 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -413,7 +413,7 @@ public class YnaCollector {
     }
 
     private String buildBasePath(String batchId) {
-        String datePath = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
+        String datePath = LocalDateTime.now().format(DateTimeFormats.STORAGE_PATH_DATE);
         return String.format("%s/%s", datePath, batchId);
     }
 
