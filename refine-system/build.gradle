@@ -6,11 +6,31 @@ plugins {
 
 dependencies {
     implementation project(':common-lib')
+    implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
     implementation 'org.springframework.boot:spring-boot-starter-data-elasticsearch'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    // Parsing / Refining
+    implementation 'org.apache.tika:tika-core:2.9.2'
+    implementation 'org.apache.tika:tika-parsers-standard-package:2.9.2'
+    implementation 'org.apache.tika:tika-parser-html-module:2.9.2'
+    implementation 'org.jsoup:jsoup:1.18.1'
+
+    // Storage / External Clients
+    implementation 'io.minio:minio:8.5.10'
+
+    // Resilience / Metrics (optional but recommended)
+    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.2.0'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+
+    // Spring Retry
+    implementation 'org.springframework.retry:spring-retry'
+    implementation 'org.springframework:spring-aspects'
+
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
