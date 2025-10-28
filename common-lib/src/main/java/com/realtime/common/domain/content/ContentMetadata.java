@@ -1,4 +1,4 @@
-package com.realtime.collector.domain.content;
+package com.realtime.common.domain.content;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -36,7 +36,7 @@ public class ContentMetadata {
     @Column(name = "raw_uri", nullable = false, length = 1024)
     private String rawUri; // minio://bucket/path
 
-    @Column(name = "refined_id", length = 24)
+    @Column(name = "refined_id", length = 100)
     private String refinedId; // Mongo ObjectId 문자열 등
 
     @Column(name = "collection_id", length = 40)
@@ -45,5 +45,4 @@ public class ContentMetadata {
     @Column(name = "collected_at", nullable = false)
     private LocalDateTime collectedAt;
 }
-
 

@@ -12,6 +12,9 @@ dependencies {
     api 'org.springframework.boot:spring-boot-starter'
     api 'org.springframework.boot:spring-boot-starter-validation'
 
+    // 🗄️ JPA (엔티티/리포지토리 공유용)
+    api 'org.springframework.boot:spring-boot-starter-data-jpa'
+
     // 📨 Kafka (메시지큐)
     api 'org.springframework.kafka:spring-kafka'
 

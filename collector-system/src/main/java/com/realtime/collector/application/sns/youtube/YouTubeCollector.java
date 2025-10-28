@@ -5,8 +5,8 @@ import com.realtime.collector.application.sns.youtube.dto.YouTubeVideoListRespon
 import com.realtime.collector.application.sns.youtube.util.YouTubeErrorMapper;
 import com.realtime.collector.application.util.CollectorEventAsyncInvoker;
 import com.realtime.collector.application.util.RetryUtils;
-import com.realtime.collector.domain.content.ContentMetadata;
-import com.realtime.collector.domain.content.ContentMetadataRepository;
+import com.realtime.common.domain.content.ContentMetadata;
+import com.realtime.common.domain.content.ContentMetadataRepository;
 import com.realtime.collector.exception.YouTubeApiException;
 import com.realtime.collector.exception.YouTubeDataCollectionException;
 import com.realtime.common.constants.ContentSource;
@@ -65,10 +65,10 @@ public class YouTubeCollector {
 
 
     @Async("youtubeTaskExecutor")
-    @Transactional
+    @Transactional // TODO 이기종에 저장해서 의미 없다. 트랜잭션 범위는 줄이면 줄일 수록 좋다.
     public CompletableFuture<Void> collectAndProcessYouTubeData() {
         String collectionId = CollectionIdGenerator.generateId("YT");
-
+        // TODO: 흠. 수집기 별로 인터페이스가 통일되면 spring batch로 바꿀 수도 있다. publish? -> writer -> processor ?? 뭐 이런 흐름이라고 함
         try {
             // 1) API 호출
             YouTubeVideoListResponse response = fetchMostPopularVideos();
@@ -105,10 +105,12 @@ public class YouTubeCollector {
         }
     }
 
+    // TODO: 백오프 어노테이션이 있다. (스프링 리트라이)
     private YouTubeVideoListResponse fetchMostPopularVideos() {
         Exception lastException = null;
         int maxAttempts = maxRetryAttempts;
         long configuredBaseBackoffMs = this.baseBackoffMs;
+
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 String responseBody = getYouTubeApiResponse();

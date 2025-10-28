@@ -1,7 +1,6 @@
-package com.realtime.collector.domain.content;
+package com.realtime.common.domain.content;
 
 import java.util.List;
-
 
 public interface ContentMetadataRepository {
 
@@ -9,3 +8,4 @@ public interface ContentMetadataRepository {
 
     void save(ContentMetadata metadata);
 }
+
