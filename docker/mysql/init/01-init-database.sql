@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS content_metadata (
   external_id    VARCHAR(128)  NOT NULL COMMENT '외부 시스템 고유 ID (YouTube 비디오 ID 등)',
   title          VARCHAR(500)  NOT NULL COMMENT '콘텐츠 제목',
   raw_uri        VARCHAR(1024) NOT NULL COMMENT 'MinIO 원본 데이터 저장 경로 (minio://bucket/path)',
-  refined_id     VARCHAR(24)   NULL COMMENT '정제된 데이터 ID (MongoDB ObjectId 등)',
+  refined_id     VARCHAR(100)  NULL COMMENT '정제된 데이터 ID (ObjectId/해시 등)',
   collection_id  VARCHAR(40)   NULL COMMENT '수집 배치 식별자 (선택사항)',
   collected_at   TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '데이터 수집 시각',
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci 

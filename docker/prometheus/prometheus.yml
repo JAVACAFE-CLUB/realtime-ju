@@ -1,0 +1,37 @@
+global:
+  scrape_interval: 5s  # 5초마다 메트릭 수집 (실시간 모니터링)
+  evaluation_interval: 5s
+  scrape_timeout: 4s
+
+scrape_configs:
+  # Kafka Lag Exporter 메트릭 수집
+  - job_name: 'kafka-lag-exporter'
+    static_configs:
+      - targets: ['kafka-lag-exporter:9999']
+        labels:
+          application: 'kafka-lag-exporter'
+          service: 'monitoring'
+
+  # Refine System 메트릭 수집
+  - job_name: 'refine-system'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:9082']  # refine-system이 호스트에서 실행되므로
+        labels:
+          application: 'refine-system'
+          service: 'refine'
+
+  # Collector System 메트릭 수집 (나중에 추가 가능)
+  - job_name: 'collector-system'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+        labels:
+          application: 'collector-system'
+          service: 'collector'
+
+  # Prometheus 자체 메트릭
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
