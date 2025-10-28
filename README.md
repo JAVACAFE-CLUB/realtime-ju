@@ -1,19 +1,44 @@
-# Realtime Keyword
+# Realtime Search Platform
+
+실시간 뉴스 및 소셜미디어 데이터를 수집하고 분석하여 트렌딩 키워드를 제공하는 플랫폼
+
+## ☁️ 데이터 플로우
+
+```
+┌─────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│ 수집 시스템    │ -> │ 정제 시스템     │ -> │ 색인 시스템    │ ->  │ 서빙 시스템    │
+│(Collector)  │    │(Refine)      │    │(Index)       │    │ (Serving)    │
+└─────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
+```
+
+![data-flow.png](data/data-flow.png)
+
+## ☁️ 프로젝트 구조
+
+| 시스템              | 설명                           | 포트   |
+|------------------|------------------------------|------|
+| common-lib       | 공통 라이브러리 (DTO, 설정, 유틸리티)     | -    |
+| collector-system | 데이터 수집 시스템 (뉴스, SNS 크롤링)     | 9080 |
+| refine-system    | 데이터 정제 시스템                   | 9082 |
+| index-system     | 검색 색인 시스템 (Elasticsearch 색인) | 9084 |
+| serving-system   | API 서빙 시스템 (REST API)        | 9086 |
 
 ## ☁️ 기술 스택
 
-- **Java 21**
-- **Spring Boot 3.3.1**
-- **Spring Data JPA**
-- **MySQL 8.0**
-- **Gradle**
-- **Docker & Docker Compose**
-
-## ️☁️ 요구사항
-
-- Java 21 이상
-- Docker & Docker Compose
-- Gradle (또는 Gradle Wrapper 사용)
+- Core
+    - Java 21
+    - Spring Boot 3.3.1
+    - Gradle 8.x
+- 데이터 저장
+    - MySQL 8.0
+    - Elasticsearch 8.x - 실시간 검색 인덱스
+    - Redis 7.x - 캐시 및 세션
+- 메시징
+    - Apache Kafka - 시스템 간 비동기 통신
+- 운영 (예정)
+    - Docker & Docker Compose - 컨테이너화
+    - Kubernetes - 컨테이너 오케스트레이션
+    - Jenkins - CI/CD 파이프라인
 
 ## ☁️ 설치 및 실행
 
@@ -22,7 +47,7 @@
 ```bash
 # 프로젝트 클론
 git clone <repository-url>
-cd realtime
+cd realtime-ju
 
 # 환경 변수 설정
 cp .env.example .env
@@ -30,57 +55,48 @@ cp .env.example .env
 # 필요에 따라 .env 파일의 환경 변수를 수정하세요
 ```
 
-### 2. 애플리케이션 실행
+### 2. 인프라 실행
 
 ```bash
-# MySQL 컨테이너 실행
-docker-compose up -d mysql
+# 전체 인프라 올리기 (모든 시스템 + kafka-ui)
+scripts/compose-up-all.sh
 
-# 애플리케이션 실행
-./gradlew bootRun
+# 수집 시스템 (mysql, kafka, minio) + 개발용 kafka-ui
+scripts/compose-up-collector.sh
+
+# 전체 중지 및 볼륨 정리
+scripts/compose-down.sh
 ```
 
-> **애플리케이션 접속**: http://localhost:8080
-
-## ☁️ 프로젝트 구조
+### 3. 애플리케이션 빌드
 
 ```
-src/
-├── main/
-│   ├── java/com/juju/realtime/
-│   │   ├── application/          # 애플리케이션 서비스
-│   │   ├── domain/              # 도메인 모델
-│   │   ├── infrastructure/      # 인프라스트럭처
-│   │   ├── presentation/        # 프레젠테이션 계층
-│   │   └── global/              # 글로벌 설정
-│   └── resources/
-│       └── application.yml      # 애플리케이션 설정
-└── test/                        # 테스트 코드
+# 전체 프로젝트 빌드
+./gradlew build
+
+# 공통 라이브러리를 로컬 Maven 저장소에 발행
+./gradlew :common-lib:publishToMavenLocal
 ```
 
-### 🔄 의존성 방향
+### 4. 시스템 실행
+
+> 애플리케이션은 IDE에서 실행
 
 ```
-Presentation → Application → Domain ← Infrastructure
-```
+# 서빙 시스템 실행
+./gradlew :serving-system:bootRun
 
-- **Presentation**: API 컨트롤러 (외부 인터페이스)
-- **Application**: 유스케이스 조정, 여러 도메인 서비스 조합
-- **Domain**: 핵심 도메인 모델과 비즈니스 로직
-- **Infrastructure**: 외부 시스템 연동 (Repository 구현체)
+# 또는 IntelliJ에서 ServingApplication.java 실행
+```
 
 ## ️☁️ 테스트 실행
 
 ```bash
-# 전체 테스트 실행
-./gradlew test
+# 특정 시스템만 빌드
+./gradlew :common-lib:build
+./gradlew :serving-system:build
 
-# 특정 테스트 클래스 실행
-./gradlew test --tests KeywordControllerTest
+# 특정 시스템만 테스트
+./gradlew :common-lib:test
+./gradlew :serving-system:test
 ```
-
-<br />
-
-<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Ghost.png" alt="Ghost" width="50" height="50" />
-<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Ghost.png" alt="Ghost" width="50" height="50" />
-<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Ghost.png" alt="Ghost" width="50" height="50" />

@@ -1,1 +1,8 @@
-rootProject.name = 'realtime'
+rootProject.name = 'realtime-ju'
+
+// 하위 프로젝트
+include 'common-lib'
+include 'serving-system'
+include 'collector-system'
+include 'refine-system'
+include 'index-system'

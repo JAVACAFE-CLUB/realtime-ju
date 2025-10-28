@@ -1,0 +1,74 @@
+package com.realtime.collector.presentation.rest;
+
+import com.realtime.collector.application.docs.wikipedia.WikipediaCollector;
+import com.realtime.collector.application.news.yna.YnaCollector;
+import com.realtime.collector.application.sns.youtube.YouTubeCollector;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Map;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Mono;
+
+/**
+ * 수동 트리거용 수집 컨트롤러.
+ * <p>
+ * 목적: - 스케줄 대기 없이 즉시 수집 작업을 시작하기 위한 엔드포인트를 제공합니다.
+ * <p>
+ * 동작: - 요청을 수신하면 비동기로 수집을 시작하고, 즉시 202 Accepted 응답을 반환합니다.
+ * <p>
+ * 보안/운영 주의: - 운영 환경에서는 인증/인가(예: API 토큰) 적용 또는 프로필 기반 비활성화를 권장합니다. - 스케줄러와의 중복 실행을 피하기 위해 호출 빈도를 제어하세요.
+ */
+@RestController
+@RequestMapping("/collect")
+@RequiredArgsConstructor
+@Slf4j
+public class CollectTriggerController {
+
+    private final WikipediaCollector wikipediaCollector;
+    private final YnaCollector ynaCollector;
+    private final YouTubeCollector youTubeCollector;
+
+    @PostMapping("/wikipedia")
+    public Mono<ResponseEntity<Map<String, Object>>> triggerWikipediaCollectPost() {
+        // 개발용: local 에서 읽기
+        String dumpPathProp = System.getProperty("wiki.dump.path",
+                "collector-system/data/kowiki-20250901-pages-articles.xml");
+        String lang = System.getProperty("wiki.lang", "ko");
+        String dumpDate = System.getProperty("wiki.dump.date", "20250901");
+        Path resolved = Path.of(dumpPathProp);
+        if (!resolved.isAbsolute()) {
+            resolved = Path.of(System.getProperty("user.dir")).resolve(resolved).normalize();
+        }
+        wikipediaCollector.collectFromLocalDump(resolved, lang, dumpDate);
+        return Mono.just(ResponseEntity.accepted().body(Map.of(
+                "status", "accepted",
+                "message", "Wikipedia collection started",
+                "acceptedAt", Instant.now().toString()
+        )));
+    }
+
+    @PostMapping("/yna")
+    public Mono<ResponseEntity<Map<String, Object>>> triggerYnaCollectPost() {
+        ynaCollector.collectAndProcessYnaData();
+        return Mono.just(ResponseEntity.accepted().body(Map.of(
+                "status", "accepted",
+                "message", "Yna collection started",
+                "acceptedAt", Instant.now().toString()
+        )));
+    }
+
+    @PostMapping("/youtube")
+    public Mono<ResponseEntity<Map<String, Object>>> triggerYouTubeCollectPost() {
+        youTubeCollector.collectAndProcessYouTubeData();
+        return Mono.just(ResponseEntity.accepted().body(Map.of(
+                "status", "accepted",
+                "message", "YouTube collection started",
+                "acceptedAt", Instant.now().toString()
+        )));
+    }
+}
