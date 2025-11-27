@@ -23,6 +23,18 @@ public class AsyncConfig {
         return executor;
     }
 
+    @Bean("youtubeVideoExecutor")
+    public TaskExecutor youtubeVideoExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(10);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(0); // 적체 방지
+        executor.setThreadNamePrefix("youtube-video-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("ynaTaskExecutor")
     public TaskExecutor ynaTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

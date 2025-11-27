@@ -8,12 +8,13 @@ import com.realtime.refine.domain.news.yna.RefinedNewsYnaRepository;
 import com.realtime.refine.infrastructure.messaging.RefineEventPublisher;
 import com.realtime.refine.infrastructure.parser.jsoup.JsoupRefineService;
 import com.realtime.refine.infrastructure.parser.jsoup.JsoupRefineService.RefinedText;
+import com.realtime.refine.infrastructure.persistence.jpa.ContentMetadataService;
 import com.realtime.refine.infrastructure.storage.minio.MinioLoader;
 import com.realtime.refine.infrastructure.storage.minio.MinioUri;
-import com.realtime.refine.infrastructure.persistence.jpa.ContentMetadataService;
 import com.realtime.refine.support.HashUtils;
 import java.io.InputStream;
 import java.time.Instant;
+import java.util.concurrent.Callable;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -36,7 +37,7 @@ public class YnaRefineProcessor {
         final String source = msg.getSource();
         final String contentId = msg.getCollectionId();
         final String rawDataUrl = msg.getRawDataUrl();
-        
+
         log.info("🚀 정제 시작 - source={}, contentId={}", source, contentId);
 
         // [2단계] 중복 처리(Idempotency) 체크 - 이미 처리된 컨텐츠는 스킵
@@ -54,23 +55,24 @@ public class YnaRefineProcessor {
             // [4단계] 원본 객체 크기 확인(대용량 경고)
             long size = minioLoader.sizeOf(uri.bucket(), uri.objectKey());
             log.debug("⬇️ MinIO 파일 로드 완료 - size={}bytes ({}KB)", size, size / 1024);
-            
+
             if (size > 10 * 1024 * 1024) {
-                log.warn("⚠️ 대용량 HTML 감지 - size={}MB, bucket={}, key={}", 
+                log.warn("⚠️ 대용량 HTML 감지 - size={}MB, bucket={}, key={}",
                         size / (1024 * 1024), uri.bucket(), uri.objectKey());
             }
 
             // [5단계] HTML을 직접 읽어서 Jsoup으로 파싱 (연합뉴스는 구조화된 HTML이므로 Tika 불필요)
             long jsoupStart = System.currentTimeMillis();
             log.debug("🔄 Jsoup 파싱 시작 - contentId={}", contentId);
-            
+
             // HTML을 UTF-8로 읽기
             RefinedText refined = jsoupRefineService.parseHtml(in, "UTF-8");
             long jsoupElapsed = System.currentTimeMillis() - jsoupStart;
-            
-            log.debug("✅ Jsoup 파싱 완료 - contentId={}, elapsed={}ms, title={}, contentLength={}", 
-                    contentId, jsoupElapsed, 
-                    refined.title() != null ? refined.title().substring(0, Math.min(50, refined.title().length())) : "null",
+
+            log.debug("✅ Jsoup 파싱 완료 - contentId={}, elapsed={}ms, title={}, contentLength={}",
+                    contentId, jsoupElapsed,
+                    refined.title() != null ? refined.title().substring(0, Math.min(50, refined.title().length()))
+                            : "null",
                     refined.content() != null ? refined.content().length() : 0);
 
             // [7단계] 정제 문서 ID 및 체크섬 생성
@@ -130,7 +132,7 @@ public class YnaRefineProcessor {
             if (saved) {
                 idempotencyService.markProcessed(source, contentId, refinedId);
                 log.debug("✅ Idempotency 마커 등록 완료 - contentId={}", contentId);
-                
+
                 // MySQL 메타데이터 업데이트 (트랜잭션 처리됨)
                 contentMetadataService.updateRefinedId(refinedId, source, contentId);
             }
@@ -146,16 +148,17 @@ public class YnaRefineProcessor {
             );
 
             long totalElapsed = System.currentTimeMillis() - start;
-            log.info("✅ 정제 완료 - source={}, contentId={}, refinedId={}, totalTime={}ms, jsoupTime={}ms, contentLength={}", 
-                    source, contentId, refinedId, totalElapsed, jsoupElapsed, 
+            log.info(
+                    "✅ 정제 완료 - source={}, contentId={}, refinedId={}, totalTime={}ms, jsoupTime={}ms, contentLength={}",
+                    source, contentId, refinedId, totalElapsed, jsoupElapsed,
                     refined.content() != null ? refined.content().length() : 0);
 
         } catch (Exception e) {
             // [에러 처리] 예외 로깅 및 DLQ로 에러 이벤트 발행(배치 지속)
             long elapsed = System.currentTimeMillis() - start;
-            log.error("❌ 정제 실패 - source={}, contentId={}, elapsed={}ms, errorType={}, error={}", 
+            log.error("❌ 정제 실패 - source={}, contentId={}, elapsed={}ms, errorType={}, error={}",
                     source, contentId, elapsed, classifyError(e), e.getMessage(), e);
-            
+
             publisher.publishRefineError(
                     KafkaTopics.REFINED_NEWS_YNA_DLQ,
                     contentId,
@@ -183,7 +186,7 @@ public class YnaRefineProcessor {
         return "REFINE_ERROR";
     }
 
-    private static <T> T retry(java.util.concurrent.Callable<T> callable, int maxAttempts, long backoffMs)
+    private static <T> T retry(Callable<T> callable, int maxAttempts, long backoffMs)
             throws Exception {
         int attempt = 0;
         while (true) {
@@ -202,6 +205,3 @@ public class YnaRefineProcessor {
         }
     }
 }
-
-
-

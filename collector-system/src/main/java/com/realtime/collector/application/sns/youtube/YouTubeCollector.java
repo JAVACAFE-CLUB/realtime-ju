@@ -1,7 +1,9 @@
 package com.realtime.collector.application.sns.youtube;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.realtime.collector.application.sns.youtube.dto.VideoRecord;
 import com.realtime.collector.application.sns.youtube.dto.YouTubeVideoListResponse;
+import com.realtime.collector.application.sns.youtube.dto.YouTubeVideoListResponse.YouTubeVideo;
 import com.realtime.collector.application.sns.youtube.util.YouTubeErrorMapper;
 import com.realtime.collector.application.util.CollectorEventAsyncInvoker;
 import com.realtime.collector.application.util.RetryUtils;
@@ -14,13 +16,11 @@ import com.realtime.common.constants.DateTimeFormats;
 import com.realtime.common.constants.KafkaTopics;
 import com.realtime.common.constants.MinIOBuckets;
 import com.realtime.common.exception.BusinessException;
-import com.realtime.common.exception.DatabaseStorageException;
 import com.realtime.common.exception.ErrorCode;
 import com.realtime.common.exception.MinioStorageException;
 import com.realtime.common.util.CollectionIdGenerator;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import jakarta.transaction.Transactional;
 import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -29,10 +29,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -40,7 +40,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class YouTubeCollector {
 
     private static final String YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/videos";
@@ -50,6 +49,7 @@ public class YouTubeCollector {
     private final MinioClient minioClient;
     private final ContentMetadataRepository contentMetadataRepository;
     private final CollectorEventAsyncInvoker eventAsyncInvoker;
+    private final TaskExecutor videoExecutor;
 
     @Value("${collector.youtube.api.key:}")
     private String youtubeApiKey;
@@ -60,50 +60,57 @@ public class YouTubeCollector {
     @Value("${collector.youtube.retry.base-backoff-ms:200}")
     private long baseBackoffMs;
 
-    @Value("${collector.youtube.batch-size:1000}")
-    private int batchSize;
+    public YouTubeCollector(
+            WebClient webClient,
+            ObjectMapper objectMapper,
+            MinioClient minioClient,
+            ContentMetadataRepository contentMetadataRepository,
+            CollectorEventAsyncInvoker eventAsyncInvoker,
+            @Qualifier("youtubeVideoExecutor") TaskExecutor youtubeVideoExecutor
+    ) {
+        this.webClient = webClient;
+        this.objectMapper = objectMapper;
+        this.minioClient = minioClient;
+        this.contentMetadataRepository = contentMetadataRepository;
+        this.eventAsyncInvoker = eventAsyncInvoker;
+        this.videoExecutor = youtubeVideoExecutor;
+    }
 
+
+    // ============================================================
+    // 메인 진입점
+    // ============================================================
 
     @Async("youtubeTaskExecutor")
-    @Transactional // TODO 이기종에 저장해서 의미 없다. 트랜잭션 범위는 줄이면 줄일 수록 좋다.
     public CompletableFuture<Void> collectAndProcessYouTubeData() {
         String collectionId = CollectionIdGenerator.generateId("YT");
-        // TODO: 흠. 수집기 별로 인터페이스가 통일되면 spring batch로 바꿀 수도 있다. publish? -> writer -> processor ?? 뭐 이런 흐름이라고 함
+        log.info("🚀 YouTube 수집 시작 - collectionId={}", collectionId);
+
         try {
-            // 1) API 호출
+            // Step 1: API 호출하여 비디오 목록 가져오기
             YouTubeVideoListResponse response = fetchMostPopularVideos();
+            if (response.items() == null || response.items().isEmpty()) {
+                log.warn("⚠️ 수집된 비디오 없음 - collectionId={}", collectionId);
+                return CompletableFuture.completedFuture(null);
+            }
 
-            // 2) 데이터 저장 (MinIO + MySQL)
-            String minioUrl = storeToMinio(response, collectionId);
-            List<ContentMetadata> metadataList = createMetadataList(response, collectionId, minioUrl);
-            saveMetadataToDatabase(metadataList);
+            // Step 2: 병렬 처리 시작
+            startParallelProcessing(response.items(), collectionId);
 
-            // 3) 성공 이벤트 발행
-            eventAsyncInvoker.publishSuccess(
-                    ContentSource.SNS_YOUTUBE.name(),
-                    KafkaTopics.RAW_SNS_YOUTUBE,
-                    collectionId,
-                    minioUrl,
-                    response.items().size());
-
-            log.info("✅ YouTube 데이터 수집 완료 - CollectionId: {}, Videos: {}",
+            log.info("✅ YouTube 수집 요청 완료 - collectionId={}, videos={}",
                     collectionId, response.items().size());
-
             return CompletableFuture.completedFuture(null);
 
         } catch (Exception e) {
-            log.error("❌ YouTube 데이터 수집 실패 - CollectionId: {}", collectionId, e);
-            eventAsyncInvoker.publishError(
-                    ContentSource.SNS_YOUTUBE.name(),
-                    KafkaTopics.RAW_SNS_YOUTUBE_DLQ,
-                    collectionId,
-                    "",
-                    determineErrorCode(e),
-                    e.getMessage(),
-                    RetryUtils.isRetriable(e));
-            throw new YouTubeDataCollectionException("데이터 수집 실패", e);
+            log.error("❌ YouTube 수집 실패 - collectionId={}", collectionId, e);
+            publishErrorEvent(collectionId, "", e, "BATCH_PROCESSING_ERROR");
+            return CompletableFuture.failedFuture(new YouTubeDataCollectionException("YouTube 데이터 수집 실패", e));
         }
     }
+
+    // ============================================================
+    // Step 1: API 호출
+    // ============================================================
 
     // TODO: 백오프 어노테이션이 있다. (스프링 리트라이)
     private YouTubeVideoListResponse fetchMostPopularVideos() {
@@ -161,70 +168,160 @@ public class YouTubeCollector {
                 .block();
     }
 
-    private String storeToMinio(YouTubeVideoListResponse response, String collectionId) {
+    // ============================================================
+    // Step 2: 병렬 처리
+    // ============================================================
+
+    private void startParallelProcessing(List<YouTubeVideo> videos, String collectionId) {
+        log.info("🔄 병렬 처리 시작 - collectionId={}, videos={}", collectionId, videos.size());
+
+        for (YouTubeVideo video : videos) {
+            String videoId = video.id();
+            processVideoAsync(video, videoId, collectionId);
+        }
+    }
+
+    private void processVideoAsync(YouTubeVideo video, String videoId, String collectionId) {
+        CompletableFuture
+                .supplyAsync(() -> processVideo(video, collectionId), videoExecutor)
+                .thenAccept(videoRecord -> handleVideoResult(videoRecord, videoId))
+                .exceptionally(ex -> {
+                    publishErrorEvent(videoId, "", new Exception(ex.getMessage()), "VIDEO_PROCESSING_FAILED");
+                    return null;
+                });
+    }
+
+    private VideoRecord processVideo(YouTubeVideo video, String collectionId) {
         try {
-            String jsonData = objectMapper.writeValueAsString(response);
-            byte[] bytes = jsonData.getBytes(StandardCharsets.UTF_8);
-            String fileName = String.format("%s/%s.json",
-                    LocalDateTime.now().format(DateTimeFormats.STORAGE_PATH_DATE),
-                    collectionId);
+            // MinIO에 개별 비디오 JSON 저장
+            String objectKey = saveVideoToMinio(video, collectionId);
+
+            // 성공 레코드 반환
+            return VideoRecord.success(video, objectKey);
+
+        } catch (Exception e) {
+            log.warn("❌ 비디오 처리 실패 - videoId={}", video.id(), e);
+            return VideoRecord.failed(video, 500, e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // Step 3: MinIO 저장
+    // ============================================================
+
+    private String saveVideoToMinio(YouTubeVideo video, String collectionId) {
+        try {
+            String videoJson = objectMapper.writeValueAsString(video);
+            byte[] bytes = videoJson.getBytes(StandardCharsets.UTF_8);
+            String objectKey = buildVideoObjectKey(collectionId, video.id());
 
             minioClient.putObject(PutObjectArgs.builder()
                     .bucket(MinIOBuckets.RAW_SNS_YOUTUBE)
-                    .object(fileName)
+                    .object(objectKey)
                     .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
                     .contentType("application/json; charset=utf-8")
-                    .userMetadata(createMinioMetadata(collectionId, response.items().size()))
+                    .userMetadata(buildVideoMetadata(collectionId, video.id()))
                     .build());
 
-            String minioUrl = String.format("minio://%s/%s", MinIOBuckets.RAW_SNS_YOUTUBE, fileName);
-            log.debug("📦 MinIO 저장 완료: {}", minioUrl);
-            return minioUrl;
+            return buildMinioUri(objectKey);
 
         } catch (Exception e) {
-            throw new MinioStorageException("MinIO 저장 실패", e);
+            throw new MinioStorageException("MinIO 비디오 저장 실패", e);
         }
     }
 
-    private Map<String, String> createMinioMetadata(String collectionId, int videoCount) {
-        return Map.of(
-                "collection-id", collectionId,
-                "video-count", String.valueOf(videoCount),
-                "collection-time", Instant.now().toString()
+    // ============================================================
+    // Step 4: 결과 처리
+    // ============================================================
+
+    private void handleVideoResult(VideoRecord videoRecord, String videoId) {
+        if (videoRecord.status() == 200) {
+            // 1. DB에 메타데이터 저장
+            saveVideoMetadata(videoRecord);
+
+            // 2. Kafka 성공 이벤트 발행
+            publishSuccessEvent(videoId, videoRecord.jsonObjectKey());
+
+            log.debug("✅ 비디오 처리 성공 - videoId={}", videoId);
+        } else {
+            // 비디오 단위 실패는 videoId를 Kafka 키로 사용
+            publishErrorEvent(videoId, "", new Exception(videoRecord.errorMessage()), "VIDEO_PROCESSING_FAILED");
+
+            log.warn("⚠️ 비디오 처리 실패 - videoId={}, status={}, error={}",
+                    videoId, videoRecord.status(), videoRecord.errorMessage());
+        }
+    }
+
+    private void saveVideoMetadata(VideoRecord record) {
+        YouTubeVideo video = record.video();
+
+        ContentMetadata metadata = ContentMetadata.builder()
+                .source(ContentSource.SNS_YOUTUBE.getCode())
+                .externalId(video.id())
+                .title(video.snippet().title())
+                .rawUri(record.jsonObjectKey())
+                .collectionId(extractCollectionIdFromUri(record.jsonObjectKey()))
+                .collectedAt(LocalDateTime.now())
+                .build();
+
+        contentMetadataRepository.save(metadata);
+    }
+
+    // ============================================================
+    // Kafka 이벤트 발행
+    // ============================================================
+
+    private void publishSuccessEvent(String videoId, String objectKey) {
+        eventAsyncInvoker.publishSuccess(
+                ContentSource.SNS_YOUTUBE.name(),
+                KafkaTopics.RAW_SNS_YOUTUBE,
+                videoId,  // Kafka 키
+                objectKey, // MinIO URI
+                1
         );
     }
 
-    private List<ContentMetadata> createMetadataList(YouTubeVideoListResponse response,
-                                                     String collectionId, String rawUri) {
-        LocalDateTime collectedAt = LocalDateTime.now();
-
-        return response.items().stream()
-                .map(item -> ContentMetadata.builder()
-                        .source(ContentSource.SNS_YOUTUBE.getCode())
-                        .externalId(item.id())
-                        .title(item.snippet().title())
-                        .rawUri(rawUri)
-                        .collectionId(collectionId)
-                        .collectedAt(collectedAt)
-                        .build())
-                .collect(Collectors.toList());
+    private void publishErrorEvent(String kafkaKey, String rawDataUrl, Exception e, String errorCode) {
+        eventAsyncInvoker.publishError(
+                ContentSource.SNS_YOUTUBE.name(),
+                KafkaTopics.RAW_SNS_YOUTUBE_DLQ,
+                kafkaKey,
+                rawDataUrl,
+                errorCode,
+                e.getMessage(),
+                RetryUtils.isRetriable(e)
+        );
     }
 
-    private void saveMetadataToDatabase(List<ContentMetadata> metadataList) {
-        try {
-            int configuredBatchSize = batchSize;
-            for (int i = 0; i < metadataList.size(); i += configuredBatchSize) {
-                int endIndex = Math.min(i + configuredBatchSize, metadataList.size());
-                List<ContentMetadata> batch = metadataList.subList(i, endIndex);
-                contentMetadataRepository.saveAll(batch);
-                log.debug("🗂️ 메타데이터 배치 저장 완료: {} records", batch.size());
-            }
+    // ============================================================
+    // 유틸리티 메서드
+    // ============================================================
 
-            log.info("🧾 전체 메타데이터 저장 완료: {} records", metadataList.size());
+    private String buildVideoObjectKey(String collectionId, String videoId) {
+        return String.format("%s/%s.json", buildBasePath(collectionId), videoId);
+    }
 
-        } catch (Exception e) {
-            throw new DatabaseStorageException("데이터베이스 저장 실패", e);
-        }
+    private String buildBasePath(String collectionId) {
+        String datePath = LocalDateTime.now().format(DateTimeFormats.STORAGE_PATH_DATE);
+        return String.format("%s/%s", datePath, collectionId);
+    }
+
+    private String buildMinioUri(String objectKey) {
+        return String.format("minio://%s/%s", MinIOBuckets.RAW_SNS_YOUTUBE, objectKey);
+    }
+
+    private Map<String, String> buildVideoMetadata(String collectionId, String videoId) {
+        return Map.of(
+                "collection-id", collectionId,
+                "video-id", videoId,
+                "collected-at", Instant.now().toString()
+        );
+    }
+
+    private String extractCollectionIdFromUri(String minioUri) {
+        // minio://raw-sns-youtube/2025/11/27/YT_xxx/videoId.json -> YT_xxx
+        String[] parts = minioUri.split("/");
+        return parts.length >= 6 ? parts[5] : "";
     }
 
     private String determineErrorCode(Exception exception) {
