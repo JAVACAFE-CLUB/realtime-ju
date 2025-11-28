@@ -86,7 +86,7 @@ minio:
 ## =====================
 collector:
   wikipedia:
-    pages-per-shard: 5000
+    pages-per-shard: 500
   youtube:
     api:
       key: ${YOUTUBE_API_KEY:}
