@@ -14,7 +14,7 @@ public class ExecutorConfig {
     public Executor refineTaskExecutor(
             @Value("${task-executor.core-pool-size:12}") int coreSize,
             @Value("${task-executor.max-pool-size:24}") int maxSize,
-            @Value("${task-executor.queue-capacity:500}") int queueCapacity,
+            @Value("${task-executor.queue-capacity:10000}") int queueCapacity,
             @Value("${task-executor.thread-name-prefix:refine-worker-}") String prefix
     ) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
@@ -23,6 +23,10 @@ public class ExecutorConfig {
         executor.setQueueCapacity(queueCapacity);
         executor.setThreadNamePrefix(prefix);
         executor.setWaitForTasksToCompleteOnShutdown(true);
+
+        // Rejected 정책: CallerRunsPolicy로 변경 (큐 초과 시 호출 스레드에서 실행)
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+
         executor.initialize();
         return executor;
     }

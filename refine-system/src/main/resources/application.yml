@@ -35,11 +35,6 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
-    properties:
-      hibernate:
-        format_sql: true
-        use_sql_comments: true
     open-in-view: false
 
   sql:
@@ -52,7 +47,7 @@ spring:
       group-id: refine-system-group
       enable-auto-commit: false
       auto-offset-reset: earliest
-      max-poll-records: 300
+      max-poll-records: 50  # LAG 모니터링을 위해 300 → 50으로 축소
       properties:
         max.poll.interval.ms: 600000
         fetch.min.bytes: 1048576
@@ -64,7 +59,7 @@ spring:
     listener:
       type: batch
       ack-mode: manual
-      concurrency: 6
+      concurrency: 12  # 파티션 수(12)와 일치 (리소스 효율화)
     producer:
       properties:
         enable.idempotence: true
@@ -78,8 +73,10 @@ spring:
 logging:
   level:
     com.realtime.serving: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    com.realtime.refine.infrastructure.messaging: DEBUG
+    com.realtime.refine.application.docs.wikipedia: DEBUG
+    org.springframework.kafka: INFO
+    org.apache.kafka: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
@@ -122,3 +119,7 @@ management:
     tags:
       application: ${spring.application.name}
       service: refine-system
+
+refine:
+  consumer:
+    delay-ms: 0

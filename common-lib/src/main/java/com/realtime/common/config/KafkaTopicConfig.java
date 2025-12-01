@@ -18,8 +18,8 @@ import org.springframework.kafka.config.TopicBuilder;
 public class KafkaTopicConfig {
 
     // 파티션 설정 상수
-    private static final int RAW_TOPIC_PARTITIONS = 6;
-    private static final int REFINED_TOPIC_PARTITIONS = 6;
+    private static final int RAW_TOPIC_PARTITIONS = 10;
+    private static final int REFINED_TOPIC_PARTITIONS = 10;
 
     @Value("${kafka.topic.partitions:3}")
     private int defaultPartitions;
@@ -102,6 +102,21 @@ public class KafkaTopicConfig {
     }
 
     @Bean
+    public NewTopic refinedNewsYnaTopic() {
+        String retentionMs = hoursToMs(refinedDataRetentionHours);
+        NewTopic topic = TopicBuilder.name(KafkaTopics.REFINED_NEWS_YNA)
+                .partitions(REFINED_TOPIC_PARTITIONS)
+                .replicas(defaultReplicationFactor)
+                .config("cleanup.policy", "delete")
+                .config("retention.ms", retentionMs)
+                .config("compression.type", "zstd")
+                .build();
+        log.info("✅ Ensuring topic: name={}, partitions={}, replicas={}, retentionMs={} (refined)",
+                KafkaTopics.REFINED_NEWS_YNA, REFINED_TOPIC_PARTITIONS, defaultReplicationFactor, retentionMs);
+        return topic;
+    }
+
+    @Bean
     public NewTopic refinedTrendsTopic() {
         NewTopic topic = TopicBuilder.name(KafkaTopics.REFINED_SNS_YOUTUBE)
                 .partitions(REFINED_TOPIC_PARTITIONS)
@@ -129,6 +144,21 @@ public class KafkaTopicConfig {
     @Bean
     public NewTopic rawNewsYnaDlqTopic() {
         return createDlqTopic(KafkaTopics.RAW_NEWS_YNA_DLQ);
+    }
+
+    @Bean
+    public NewTopic refinedDocsWikipediaDlqTopic() {
+        return createDlqTopic(KafkaTopics.REFINED_DOCS_WIKIPEDIA_DLQ);
+    }
+
+    @Bean
+    public NewTopic refinedNewsYnaDlqTopic() {
+        return createDlqTopic(KafkaTopics.REFINED_NEWS_YNA_DLQ);
+    }
+
+    @Bean
+    public NewTopic refinedSnsYouTubeDlqTopic() {
+        return createDlqTopic(KafkaTopics.REFINED_SNS_YOUTUBE_DLQ);
     }
 
     // Helper Methods

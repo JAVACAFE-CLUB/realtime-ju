@@ -19,6 +19,7 @@ dependencies {
     implementation 'org.apache.tika:tika-parsers-standard-package:2.9.2'
     implementation 'org.apache.tika:tika-parser-html-module:2.9.2'
     implementation 'org.jsoup:jsoup:1.18.1'
+    implementation 'info.bliki.wiki:bliki-core:3.1.0'  // Wikitext 파싱
 
     // Storage / External Clients
     implementation 'io.minio:minio:8.5.10'
