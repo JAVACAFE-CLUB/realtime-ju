@@ -4,13 +4,16 @@ spring:
 ---
 
 server:
-  port: 9084
+  port: 9083
 
-# 개발 환경 설정
 spring:
+  application:
+    name: index-system
+
   config:
     activate:
       on-profile: local
+
   datasource:
     url: jdbc:mysql://localhost:3306/${DB_NAME:realtime_db}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true
     username: ${DB_USER:realtime_user}
@@ -23,30 +26,65 @@ spring:
       validation-timeout: 3000
       idle-timeout: 600000
       max-lifetime: 1800000
+
   data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:redis1234}
+    mongodb:
+      uri: mongodb://${MONGO_HOST:localhost}:${MONGO_PORT:27017}/${MONGO_DB:realtime_mongodb}
+
+  elasticsearch:
+    uris: ${ES_URI:localhost:9200}
 
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
-        use_sql_comments: true
+        dialect: org.hibernate.dialect.MySQLDialect
     open-in-view: false
 
-  sql:
-    init:
-      mode: never
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: index-system-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      max-poll-records: 100
+      fetch-min-size: 1024
+      session-timeout-ms: 45000
+      heartbeat-interval-ms: 3000
+      max-poll-interval-ms: 300000
+      properties:
+        spring.json.trusted.packages: com.realtime.common.kafka.message
+        spring.json.type.mapping: RefineMessage:com.realtime.common.kafka.message.RefineMessage
+
+    listener:
+      type: batch
+      ack-mode: manual
+
+# 스레드 풀 설정
+task-executor:
+  core-pool-size: 10
+  max-pool-size: 20
+  queue-capacity: 500
+  thread-name-prefix: index-executor-
+
+# Elasticsearch bulk 설정
+elasticsearch:
+  bulk:
+    size: 500
+    flush-interval: 5s
 
 logging:
   level:
-    com.realtime.serving: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    root: INFO
+    com.realtime.index: INFO  # DEBUG → INFO로 변경 (불필요한 로그 제거)
+    org.springframework.data.elasticsearch: WARN  # INFO → WARN (ES 내부 로그 숨김)
+    org.springframework.kafka: INFO
+    org.hibernate.SQL: WARN  # DEBUG → WARN (SQL 로그 숨김)
+    org.hibernate.type: WARN  # 파라미터 바인딩 로그 숨김
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

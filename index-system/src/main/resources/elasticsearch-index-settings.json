@@ -1,0 +1,79 @@
+{
+  "settings": {
+    "number_of_shards": 3,
+    "number_of_replicas": 1,
+    "refresh_interval": "5s",
+    "analysis": {
+      "analyzer": {
+        "korean_analyzer": {
+          "type": "custom",
+          "tokenizer": "nori_tokenizer",
+          "filter": [
+            "lowercase",
+            "nori_part_of_speech",
+            "korean_stopwords",
+            "nori_readingform"
+          ]
+        }
+      },
+      "filter": {
+        "korean_stopwords": {
+          "type": "stop",
+          "stopwords": [
+            "이", "그", "저", "것", "수", "등", "및", "또는", "때문", "위해",
+            "있다", "없다", "하다", "되다", "이다", "아니다", "이렇다", "그렇다",
+            "어떻다", "어떠하다", "하나", "둘", "셋", "때", "곳", "사람"
+          ]
+        },
+        "nori_part_of_speech": {
+          "type": "nori_part_of_speech",
+          "stoptags": [
+            "E", "IC", "J", "MAG", "MAJ", "MM", "SP", "SSC", "SSO", "SC", "SE", "XPN", "XSA", "XSN", "XSV", "UNA", "NA", "VSV"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "documentId": {
+        "type": "keyword"
+      },
+      "sourceType": {
+        "type": "keyword"
+      },
+      "title": {
+        "type": "text",
+        "analyzer": "korean_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword"
+          }
+        }
+      },
+      "content": {
+        "type": "text",
+        "analyzer": "korean_analyzer"
+      },
+      "author": {
+        "type": "keyword"
+      },
+      "category": {
+        "type": "keyword"
+      },
+      "publishedAt": {
+        "type": "date"
+      },
+      "indexedAt": {
+        "type": "date"
+      },
+      "popularity": {
+        "type": "long"
+      },
+      "metadata": {
+        "type": "object",
+        "enabled": false
+      }
+    }
+  }
+}
