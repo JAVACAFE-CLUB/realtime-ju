@@ -11,10 +11,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
+
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 키워드 랭킹 업데이트 스케줄러
@@ -32,9 +36,18 @@ public class KeywordRankingScheduler {
     private final KeywordRankingCache rankingCache;
 
     /**
-     * 5분마다 키워드 랭킹 업데이트
+     * 애플리케이션 시작 시 10초 후 초기 랭킹 업데이트
      */
-    @Scheduled(fixedRate = 300000, initialDelay = 10000)  // 5분 = 300000ms
+    @PostConstruct
+    public void init() {
+        CompletableFuture.delayedExecutor(10, TimeUnit.SECONDS)
+                .execute(this::updateKeywordRanking);
+    }
+
+    /**
+     * 매일 자정에 키워드 랭킹 업데이트 (하루 기준)
+     */
+    @Scheduled(cron = "0 0 0 * * *", zone = "Asia/Seoul")
     public void updateKeywordRanking() {
         log.info("🔄 Starting keyword ranking update...");
 
