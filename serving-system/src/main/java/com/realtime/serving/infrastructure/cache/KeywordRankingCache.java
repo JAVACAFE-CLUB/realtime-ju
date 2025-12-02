@@ -1,18 +1,20 @@
 package com.realtime.serving.infrastructure.cache;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.realtime.serving.domain.ranking.RankedKeyword;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Redis를 사용한 키워드 랭킹 캐시
+ * RankedKeyword 전체를 JSON으로 저장하여 sources 정보 보존
  */
 @Component
 @RequiredArgsConstructor
@@ -20,58 +22,54 @@ import java.util.Set;
 public class KeywordRankingCache {
 
     private final RedisTemplate<String, Object> redisTemplate;
+    private final ObjectMapper objectMapper;
 
-    private static final String RANKING_KEY = "trending:keywords";
+    private static final String RANKING_KEY = "trending:keywords:full";
     private static final String TIMESTAMP_KEY = "trending:updated_at";
+    private static final long CACHE_TTL_HOURS = 24;
 
     /**
-     * 랭킹 데이터를 Redis에 저장
-     * Sorted Set을 사용하여 score 기준으로 자동 정렬
+     * 랭킹 데이터를 Redis에 저장 (JSON 직렬화)
      */
     public void saveRanking(List<RankedKeyword> rankedKeywords) {
-        ZSetOperations<String, Object> zSetOps = redisTemplate.opsForZSet();
-
-        // 기존 데이터 삭제
-        redisTemplate.delete(RANKING_KEY);
-
-        // 새로운 데이터 저장 (score가 높을수록 상위)
-        for (RankedKeyword keyword : rankedKeywords) {
-            zSetOps.add(RANKING_KEY, keyword.getKeyword(), keyword.getScore());
+        try {
+            String json = objectMapper.writeValueAsString(rankedKeywords);
+            redisTemplate.opsForValue().set(RANKING_KEY, json, CACHE_TTL_HOURS, TimeUnit.HOURS);
+            redisTemplate.opsForValue().set(TIMESTAMP_KEY, System.currentTimeMillis());
+            log.info("Saved {} keywords to Redis ranking cache", rankedKeywords.size());
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize ranking data", e);
         }
-
-        // 업데이트 시간 저장
-        redisTemplate.opsForValue().set(TIMESTAMP_KEY, System.currentTimeMillis());
-
-        log.info("Saved {} keywords to Redis ranking cache", rankedKeywords.size());
     }
 
     /**
      * 상위 N개 키워드 조회
      */
     public List<RankedKeyword> getTopKeywords(int limit) {
-        ZSetOperations<String, Object> zSetOps = redisTemplate.opsForZSet();
+        try {
+            Object cached = redisTemplate.opsForValue().get(RANKING_KEY);
+            if (cached == null) {
+                log.warn("No ranking data found in Redis cache");
+                return List.of();
+            }
 
-        // score 역순으로 조회 (높은 점수가 먼저)
-        Set<ZSetOperations.TypedTuple<Object>> results =
-                zSetOps.reverseRangeWithScores(RANKING_KEY, 0, limit - 1);
+            List<RankedKeyword> allKeywords = objectMapper.readValue(
+                    cached.toString(),
+                    new TypeReference<List<RankedKeyword>>() {}
+            );
 
-        if (results == null || results.isEmpty()) {
-            log.warn("No ranking data found in Redis cache");
+            // limit 적용
+            List<RankedKeyword> result = allKeywords.stream()
+                    .limit(limit)
+                    .toList();
+
+            log.debug("Retrieved {} keywords from Redis cache", result.size());
+            return result;
+
+        } catch (JsonProcessingException e) {
+            log.error("Failed to deserialize ranking data", e);
             return List.of();
         }
-
-        List<RankedKeyword> rankedKeywords = new ArrayList<>();
-        int rank = 1;
-        for (ZSetOperations.TypedTuple<Object> result : results) {
-            rankedKeywords.add(RankedKeyword.builder()
-                    .keyword((String) result.getValue())
-                    .score(result.getScore() != null ? result.getScore() : 0.0)
-                    .rank(rank++)
-                    .build());
-        }
-
-        log.debug("Retrieved {} keywords from Redis cache", rankedKeywords.size());
-        return rankedKeywords;
     }
 
     /**

@@ -16,4 +16,6 @@ public class RawKeyword {
     private long docCount;
     private ContentSource source;
     private LocalDateTime indexedAt;
+    private String documentUrl;     // 대표 문서 링크
+    private String documentTitle;   // 대표 문서 제목
 }
