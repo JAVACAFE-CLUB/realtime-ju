@@ -29,6 +29,9 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:redis1234}
 
+  elasticsearch:
+    uris: ${ES_URI:localhost:9200}
+
   jpa:
     hibernate:
       ddl-auto: update
@@ -43,10 +46,21 @@ spring:
     init:
       mode: never
 
+# 키워드 랭킹 스코어링 가중치
+ranking:
+  weights:
+    source:
+      NEWS_YNA: 100.0        # YNA 뉴스: 가장 높은 가중치 (실시간 트렌드)
+      SNS_YOUTUBE: 5.0       # YouTube: 중간 가중치 (SNS 트렌드)
+      DOCS_WIKIPEDIA: 0.1    # Wikipedia: 낮은 가중치 (배경 지식)
+    recent-hour-weight: 10.0   # 최근 1시간 이내
+    recent-day-weight: 5.0     # 최근 24시간 이내
+    default-weight: 1.0        # 그 이상
+
 logging:
   level:
-    com.realtime.serving: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    com.realtime.serving: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

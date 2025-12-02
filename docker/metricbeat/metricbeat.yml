@@ -1,0 +1,58 @@
+metricbeat.modules:
+  # Elasticsearch 모니터링
+  - module: elasticsearch
+    metricsets:
+      - node
+      - node_stats
+      - index
+      - index_recovery
+      - index_summary
+      - shard
+      - ml_job
+    period: 10s
+    hosts: ["${ELASTICSEARCH_HOSTS}"]
+
+  # 시스템 메트릭 (Docker 컨테이너)
+  - module: system
+    period: 10s
+    metricsets:
+      - cpu
+      - load
+      - memory
+      - network
+      - process
+      - process_summary
+      - socket_summary
+    processes: ['.*']
+    process.include_top_n:
+      by_cpu: 5
+      by_memory: 5
+
+  # Docker 컨테이너 모니터링
+  - module: docker
+    metricsets:
+      - container
+      - cpu
+      - diskio
+      - healthcheck
+      - info
+      - memory
+      - network
+    hosts: ["unix:///var/run/docker.sock"]
+    period: 10s
+
+# Elasticsearch 출력 설정
+output.elasticsearch:
+  hosts: ["${ELASTICSEARCH_HOSTS}"]
+
+# Kibana 설정
+setup.kibana:
+  host: "${KIBANA_HOST}"
+
+# 대시보드 자동 설정
+setup.dashboards.enabled: true
+
+# ILM 정책
+setup.ilm.enabled: true
+setup.ilm.rollover_alias: "metricbeat"
+setup.ilm.pattern: "{now/d}-000001"

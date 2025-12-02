@@ -127,7 +127,9 @@ services:
 
   elasticsearch:
     <<: *service-defaults
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    build:
+      context: ./docker/elasticsearch
+      dockerfile: Dockerfile
     container_name: realtime-elasticsearch
     profiles: [index, serving]
     environment:
@@ -139,6 +141,45 @@ services:
       - "9300:9300"
     volumes:
       - es_data:/usr/share/elasticsearch/data
+
+  kibana:
+    <<: *service-defaults
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: realtime-kibana
+    profiles: [dev, index, serving]
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_NAME=kibana
+      - SERVER_HOST=0.0.0.0
+    ports:
+      - "15601:5601"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Metricbeat - Elasticsearch 고급 모니터링 (선택적)
+  # 필요 시 profiles에서 주석 해제
+  metricbeat:
+    <<: *service-defaults
+    image: docker.elastic.co/beats/metricbeat:8.11.0
+    container_name: realtime-metricbeat
+    profiles: [monitoring]  # 기본적으로 비활성화
+    depends_on:
+      - elasticsearch
+      - kibana
+    user: root
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker/metricbeat/metricbeat.yml:/usr/share/metricbeat/metricbeat.yml:ro
+    command: metricbeat -e -strict.perms=false
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - KIBANA_HOST=http://kibana:5601
 
   redis:
     <<: *service-defaults
