@@ -12,7 +12,7 @@ spring:
     activate:
       on-profile: local
   datasource:
-    url: jdbc:mysql://localhost:3306/${DB_NAME:realtime_db}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:realtime_db}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true
     username: ${DB_USER:realtime_user}
     password: ${DB_PASSWORD:realtime_password}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -28,25 +28,98 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:redis1234}
+    mongodb:
+      uri: mongodb://${MONGODB_HOST:localhost}:${MONGODB_PORT:27017}/${MONGODB_DB_NAME:realtime_mongodb}
+      auto-index-creation: true
 
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
-    properties:
-      hibernate:
-        format_sql: true
-        use_sql_comments: true
     open-in-view: false
 
   sql:
     init:
       mode: never
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: refine-system-group
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      max-poll-records: 50  # LAG 모니터링을 위해 300 → 50으로 축소
+      properties:
+        max.poll.interval.ms: 600000
+        fetch.min.bytes: 1048576
+        fetch.max.wait.ms: 50
+        max.partition.fetch.bytes: 16777216
+        session.timeout.ms: 45000
+        heartbeat.interval.ms: 15000
+        isolation.level: read_committed
+    listener:
+      type: batch
+      ack-mode: manual
+      concurrency: 12  # 파티션 수(12)와 일치 (리소스 효율화)
+    producer:
+      properties:
+        enable.idempotence: true
+        acks: all
+        retries: 2147483647
+        max.in.flight.requests.per.connection: 5
+        linger.ms: 10
+        batch.size: 16384
+        compression.type: lz4
+
 logging:
   level:
     com.realtime.serving: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    com.realtime.refine.infrastructure.messaging: DEBUG
+    com.realtime.refine.application.docs.wikipedia: DEBUG
+    org.springframework.kafka: INFO
+    org.apache.kafka: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# External services and processing configs
+minio:
+  endpoint: http://${MINIO_HOST:localhost}:${MINIO_PORT:9000}
+  access-key: ${MINIO_ACCESS_KEY}
+  secret-key: ${MINIO_SECRET_KEY}
+  connection-pool:
+    max-connections: 200
+    connection-timeout: 5000
+    read-timeout: 30000
+
+tika:
+  max-string-length: 100000000
+  timeout: 60000
+
+task-executor:
+  core-pool-size: 12
+  max-pool-size: 24
+  queue-capacity: 500
+  thread-name-prefix: refine-worker-
+
+# Actuator & Prometheus 설정
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+      service: refine-system
+
+refine:
+  consumer:
+    delay-ms: 0

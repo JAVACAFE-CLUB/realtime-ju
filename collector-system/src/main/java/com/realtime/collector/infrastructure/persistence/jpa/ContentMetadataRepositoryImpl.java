@@ -1,7 +1,8 @@
 package com.realtime.collector.infrastructure.persistence.jpa;
 
-import com.realtime.collector.domain.content.ContentMetadata;
-import com.realtime.collector.domain.content.ContentMetadataRepository;
+import com.realtime.common.domain.content.ContentMetadata;
+import com.realtime.common.domain.content.ContentMetadataRepository;
+import com.realtime.common.infrastructure.persistence.jpa.ContentMetadataJpaRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;

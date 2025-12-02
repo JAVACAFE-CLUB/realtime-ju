@@ -68,7 +68,7 @@ services:
       KAFKA_LOG_RETENTION_BYTES: 1073741824
       KAFKA_LOG_SEGMENT_BYTES: 268435456
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_NUM_PARTITIONS: 12  # 3 → 12로 증가 (처리량 4배 향상)
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
       KAFKA_METADATA_LOG_SEGMENT_BYTES: 33554432
       KAFKA_METADATA_LOG_MAX_RECORD_BYTES_BETWEEN_SNAPSHOTS: 2097152
@@ -144,12 +144,17 @@ services:
     <<: *service-defaults
     image: redis:7.2-alpine
     container_name: realtime-redis
-    profiles: [serving]
+    profiles: [refine, serving]
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis1234}
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mongodb:
     <<: *service-defaults
@@ -168,6 +173,82 @@ services:
       timeout: 5s
       retries: 5
 
+  mongo-express:
+    <<: *service-defaults
+    image: mongo-express:1.0-20
+    container_name: realtime-mongo-express
+    profiles: [dev]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin123
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: 'true'
+    ports:
+      - "18081:8081"
+
+  redis-commander:
+    <<: *service-defaults
+    image: ghcr.io/joeferner/redis-commander:latest
+    container_name: realtime-redis-commander
+    profiles: [dev]
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-redis1234}
+    ports:
+      - "18082:8081"
+
+  prometheus:
+    <<: *service-defaults
+    image: prom/prometheus:latest
+    container_name: realtime-prometheus
+    profiles: [refine, dev]
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "19090:9090"
+
+  kafka-lag-exporter:
+    <<: *service-defaults
+    image: seglo/kafka-lag-exporter:0.8.2
+    container_name: realtime-kafka-lag-exporter
+    profiles: [refine, dev]
+    depends_on:
+      - kafka
+    volumes:
+      - ./docker/kafka-lag-exporter:/opt/docker/conf
+    ports:
+      - "19999:9999"
+    command: ["/opt/docker/bin/kafka-lag-exporter", "-Dconfig.file=/opt/docker/conf/application.conf"]
+
+  grafana:
+    <<: *service-defaults
+    image: grafana/grafana:latest
+    container_name: realtime-grafana
+    profiles: [refine, dev]
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+      GF_SERVER_ROOT_URL: http://localhost:18083
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "18083:3000"
+
 volumes:
   mysql_data:
     driver: local
@@ -180,6 +261,10 @@ volumes:
   redis_data:
     driver: local
   mongodb_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
     driver: local
 
 networks:

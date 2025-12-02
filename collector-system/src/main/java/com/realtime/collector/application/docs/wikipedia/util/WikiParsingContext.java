@@ -3,6 +3,10 @@ package com.realtime.collector.application.docs.wikipedia.util;
 
 import com.realtime.collector.application.docs.wikipedia.dto.ShardStats;
 import com.realtime.collector.application.docs.wikipedia.dto.WikiPage;
+import com.realtime.collector.application.util.CollectorEventAsyncInvoker;
+import com.realtime.common.constants.ContentSource;
+import com.realtime.common.constants.KafkaTopics;
+import com.realtime.common.constants.MinIOBuckets;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -12,6 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
 
 /**
@@ -20,6 +25,7 @@ import lombok.Getter;
  * - 요소 스택을 유지해 부모/현재 요소를 추적하고, - 텍스트 버퍼링을 통해 필요한 값(title, text 등)을 누적하며, - 페이지마다 NDJSON 레코드를 생성해 샤드 파일로 쓰고 업로드합니다.
  * </p>
  */
+@Slf4j
 @Getter
 @Builder
 public class WikiParsingContext {
@@ -33,6 +39,7 @@ public class WikiParsingContext {
     private final int pagesPerShard;
     private final String basePrefix;
     private final WikiShardManager shardManager;
+    private final CollectorEventAsyncInvoker eventAsyncInvoker;
 
     private final Deque<String> elementStack = new ArrayDeque<>();
     private StringBuilder textBuffer;
@@ -181,9 +188,32 @@ public class WikiParsingContext {
             totalBytes += uploadedBytes;
             totalShards++;
 
+            // 샤드 업로드 직후 Kafka 이벤트 발행
+            publishShardEvent(shardKey);
+
         } catch (Exception e) {
             throw new RuntimeException("샤드 업로드 실패", e);
         }
+    }
+
+    /**
+     * 샤드별 Kafka 이벤트를 발행합니다.
+     */
+    private void publishShardEvent(String shardKey) {
+        String kafkaKey = collectionId + "-shard-" + (shardIndex - 1);
+        String minioUrl = String.format("minio://%s/%s", MinIOBuckets.RAW_DOCS_WIKIPEDIA, shardKey);
+        int pagesInShard = currentShard.getPagesInShard();
+
+        eventAsyncInvoker.publishSuccess(
+                ContentSource.DOCS_WIKIPEDIA.name(),
+                KafkaTopics.RAW_DOCS_WIKIPEDIA,
+                kafkaKey,
+                minioUrl,
+                pagesInShard
+        );
+
+        log.debug("✅ 샤드 업로드 완료 - shardIndex={}, pages={}, key={}",
+                shardIndex - 1, pagesInShard, shardKey);
     }
 
     /**
@@ -210,5 +240,3 @@ public class WikiParsingContext {
                 .build();
     }
 }
-
-

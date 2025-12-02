@@ -17,6 +17,10 @@ import org.springframework.kafka.config.TopicBuilder;
 @Slf4j
 public class KafkaTopicConfig {
 
+    // 파티션 설정 상수
+    private static final int RAW_TOPIC_PARTITIONS = 10;
+    private static final int REFINED_TOPIC_PARTITIONS = 10;
+
     @Value("${kafka.topic.partitions:3}")
     private int defaultPartitions;
 
@@ -34,7 +38,7 @@ public class KafkaTopicConfig {
     public NewTopic rawWikipediaTopic() {
         String retentionMs = hoursToMs(rawDataRetentionHours);
         NewTopic topic = TopicBuilder.name(KafkaTopics.RAW_DOCS_WIKIPEDIA)
-                .partitions(defaultPartitions)
+                .partitions(RAW_TOPIC_PARTITIONS)
                 .replicas(defaultReplicationFactor)
                 .config("cleanup.policy", "delete")
                 .config("retention.ms", retentionMs)
@@ -44,7 +48,7 @@ public class KafkaTopicConfig {
                 .config("min.insync.replicas", "1")
                 .build();
         log.info("✅ Ensuring topic: name={}, partitions={}, replicas={}, retentionMs={} (raw)",
-                KafkaTopics.RAW_DOCS_WIKIPEDIA, defaultPartitions, defaultReplicationFactor, retentionMs);
+                KafkaTopics.RAW_DOCS_WIKIPEDIA, RAW_TOPIC_PARTITIONS, defaultReplicationFactor, retentionMs);
         return topic;
     }
 
@@ -52,7 +56,7 @@ public class KafkaTopicConfig {
     public NewTopic rawNewsYnaTopic() {
         String retentionMs = hoursToMs(rawDataRetentionHours);
         NewTopic topic = TopicBuilder.name(KafkaTopics.RAW_NEWS_YNA)
-                .partitions(defaultPartitions)
+                .partitions(RAW_TOPIC_PARTITIONS)
                 .replicas(defaultReplicationFactor)
                 .config("cleanup.policy", "delete")
                 .config("retention.ms", retentionMs)
@@ -60,7 +64,7 @@ public class KafkaTopicConfig {
                 .config("compression.type", "zstd")
                 .build();
         log.info("✅ Ensuring topic: name={}, partitions={}, replicas={}, retentionMs={} (raw)",
-                KafkaTopics.RAW_NEWS_YNA, defaultPartitions, defaultReplicationFactor, retentionMs);
+                KafkaTopics.RAW_NEWS_YNA, RAW_TOPIC_PARTITIONS, defaultReplicationFactor, retentionMs);
         return topic;
     }
 
@@ -68,7 +72,7 @@ public class KafkaTopicConfig {
     public NewTopic rawSnsYouTubeTopic() {
         String retentionMs = hoursToMs(rawDataRetentionHours);
         NewTopic topic = TopicBuilder.name(KafkaTopics.RAW_SNS_YOUTUBE)
-                .partitions(defaultPartitions)
+                .partitions(RAW_TOPIC_PARTITIONS)
                 .replicas(defaultReplicationFactor)
                 .config("cleanup.policy", "delete")
                 .config("retention.ms", retentionMs)
@@ -77,7 +81,7 @@ public class KafkaTopicConfig {
                 .config("max.message.bytes", "10485760") // 10MB (동영상 메타데이터 대비)
                 .build();
         log.info("✅ Ensuring topic: name={}, partitions={}, replicas={}, retentionMs={} (raw)",
-                KafkaTopics.RAW_SNS_YOUTUBE, defaultPartitions, defaultReplicationFactor, retentionMs);
+                KafkaTopics.RAW_SNS_YOUTUBE, RAW_TOPIC_PARTITIONS, defaultReplicationFactor, retentionMs);
         return topic;
     }
 
@@ -85,31 +89,44 @@ public class KafkaTopicConfig {
     @Bean
     public NewTopic refinedArticlesTopic() {
         String retentionMs = hoursToMs(refinedDataRetentionHours);
-        int partitionsForArticles = 5; // 처리량 향상을 위해 원시값보다 크게
         NewTopic topic = TopicBuilder.name(KafkaTopics.REFINED_DOCS_WIKIPEDIA)
-                .partitions(partitionsForArticles)
+                .partitions(REFINED_TOPIC_PARTITIONS)
                 .replicas(defaultReplicationFactor)
                 .config("cleanup.policy", "delete")
                 .config("retention.ms", retentionMs)
                 .config("compression.type", "zstd")
                 .build();
         log.info("✅ Ensuring topic: name={}, partitions={}, replicas={}, retentionMs={} (refined)",
-                KafkaTopics.REFINED_DOCS_WIKIPEDIA, partitionsForArticles, defaultReplicationFactor, retentionMs);
+                KafkaTopics.REFINED_DOCS_WIKIPEDIA, REFINED_TOPIC_PARTITIONS, defaultReplicationFactor, retentionMs);
+        return topic;
+    }
+
+    @Bean
+    public NewTopic refinedNewsYnaTopic() {
+        String retentionMs = hoursToMs(refinedDataRetentionHours);
+        NewTopic topic = TopicBuilder.name(KafkaTopics.REFINED_NEWS_YNA)
+                .partitions(REFINED_TOPIC_PARTITIONS)
+                .replicas(defaultReplicationFactor)
+                .config("cleanup.policy", "delete")
+                .config("retention.ms", retentionMs)
+                .config("compression.type", "zstd")
+                .build();
+        log.info("✅ Ensuring topic: name={}, partitions={}, replicas={}, retentionMs={} (refined)",
+                KafkaTopics.REFINED_NEWS_YNA, REFINED_TOPIC_PARTITIONS, defaultReplicationFactor, retentionMs);
         return topic;
     }
 
     @Bean
     public NewTopic refinedTrendsTopic() {
-        int partitionsForTrends = 3;
         NewTopic topic = TopicBuilder.name(KafkaTopics.REFINED_SNS_YOUTUBE)
-                .partitions(partitionsForTrends)
+                .partitions(REFINED_TOPIC_PARTITIONS)
                 .replicas(defaultReplicationFactor)
                 .config("cleanup.policy", "compact") // 최신 트렌드만 유지
                 .config("min.compaction.lag.ms", "1800000") // 30분 후 압축
                 .config("compression.type", "zstd")
                 .build();
         log.info("✅ Ensuring topic: name={}, partitions={}, replicas={}, policy=compact (refined)",
-                KafkaTopics.REFINED_SNS_YOUTUBE, partitionsForTrends, defaultReplicationFactor);
+                KafkaTopics.REFINED_SNS_YOUTUBE, REFINED_TOPIC_PARTITIONS, defaultReplicationFactor);
         return topic;
     }
 
@@ -127,6 +144,21 @@ public class KafkaTopicConfig {
     @Bean
     public NewTopic rawNewsYnaDlqTopic() {
         return createDlqTopic(KafkaTopics.RAW_NEWS_YNA_DLQ);
+    }
+
+    @Bean
+    public NewTopic refinedDocsWikipediaDlqTopic() {
+        return createDlqTopic(KafkaTopics.REFINED_DOCS_WIKIPEDIA_DLQ);
+    }
+
+    @Bean
+    public NewTopic refinedNewsYnaDlqTopic() {
+        return createDlqTopic(KafkaTopics.REFINED_NEWS_YNA_DLQ);
+    }
+
+    @Bean
+    public NewTopic refinedSnsYouTubeDlqTopic() {
+        return createDlqTopic(KafkaTopics.REFINED_SNS_YOUTUBE_DLQ);
     }
 
     // Helper Methods

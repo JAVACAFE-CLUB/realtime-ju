@@ -9,14 +9,14 @@ import com.realtime.collector.application.docs.wikipedia.util.WikiXmlParser;
 import com.realtime.collector.application.docs.wikipedia.util.WikiXmlUtil;
 import com.realtime.collector.application.util.CollectorEventAsyncInvoker;
 import com.realtime.collector.application.util.RetryUtils;
-import com.realtime.collector.domain.content.ContentMetadata;
-import com.realtime.collector.domain.content.ContentMetadataRepository;
 import com.realtime.common.constants.CollectionPrefixes;
 import com.realtime.common.constants.ContentSource;
 import com.realtime.common.constants.DateTimeFormats;
 import com.realtime.common.constants.KafkaTopics;
 import com.realtime.common.constants.MinIOBuckets;
 import com.realtime.common.constants.SchemaVersions;
+import com.realtime.common.domain.content.ContentMetadata;
+import com.realtime.common.domain.content.ContentMetadataRepository;
 import com.realtime.common.exception.MinioStorageException;
 import com.realtime.common.util.CollectionIdGenerator;
 import io.minio.MinioClient;
@@ -76,22 +76,14 @@ public class WikipediaCollector {
             log.info("Wikipedia 수집 시작 - collectionId={}, lang={}, dumpDate={}", collectionId, lang, dumpDate);
 
             // 1) 데이터 수집: 덤프 파일을 파싱하여 NDJSON 샤드로 업로드하고 통계 정보 수집
+            //    (각 샤드 업로드 시마다 Kafka 이벤트가 발행됨)
             ShardStats stats = processWikipediaDump(dumpPath, lang, dumpDate, collectionId);
 
-            // 2) 매니페스트 저장: 수집된 샤드들의 메타데이터를 포함한 매니페스트 파일을 MinIO에 저장
+            // 2) 매니페스트 저장: 수집된 샤드들의 메타데이터를 포함한 매니페스트 파일을 MinIO에 저장 (디버깅/통계 용도)
             String manifestUrl = storeManifest(collectionId, lang, dumpDate, stats);
 
             // 3) 수집 메타데이터 저장: 데이터베이스에 수집 작업의 메타데이터 정보 저장
             saveCollectionMetadata(collectionId, manifestUrl, lang, dumpDate);
-
-            // 4) 성공 이벤트 발행: Kafka를 통해 수집 완료 이벤트를 다른 시스템에 알림
-            eventAsyncInvoker.publishSuccess(
-                    ContentSource.DOCS_WIKIPEDIA.name(),
-                    KafkaTopics.RAW_DOCS_WIKIPEDIA,
-                    collectionId,
-                    manifestUrl,
-                    stats.getPagesTotal()
-            );
 
             log.info("✅ Wikipedia 수집 완료 - collectionId={}, pagesTotal={}, shardsTotal={}",
                     collectionId, stats.getPagesTotal(), stats.getShardsTotal());
@@ -170,6 +162,7 @@ public class WikipediaCollector {
                 .pagesPerShard(pagesPerShard)
                 .basePrefix(basePrefix)
                 .shardManager(shardManager)
+                .eventAsyncInvoker(eventAsyncInvoker)
                 .build();
 
         XMLInputFactory factory = XMLInputFactory.newFactory();
